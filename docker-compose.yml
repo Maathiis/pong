@@ -1,0 +1,49 @@
+# Tout le back du Pong connecté en local : base, broker MQTT pour la borne, API.
+# L'appli Expo tourne à côté (cd app && npx expo start), voir README.md.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pong
+      POSTGRES_PASSWORD: pong
+      POSTGRES_DB: pong
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pong -d pong"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883" # la borne (ESP32) se connecte ici, sur l'IP du Mac
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt-data:/mosquitto/data
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: postgres://pong:pong@db:5432/pong
+      MQTT_URL: mqtt://mqtt:1883
+      JWT_SECRET: ${JWT_SECRET:-change-moi-en-local}
+      TARGET_SCORE: ${TARGET_SCORE:-7}
+      PORT: 3000
+    ports:
+      - "3001:3000" # l'appli appelle http://<IP du Mac>:3001/api
+    depends_on:
+      db:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  mqtt-data:

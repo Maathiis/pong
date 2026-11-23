@@ -1,0 +1,63 @@
+/** Types renvoyés par l'API (voir api/src). */
+
+export type Side = 'left' | 'right';
+export type MatchStatus = 'WAITING' | 'COUNTDOWN' | 'LIVE' | 'FINISHED' | 'INTERRUPTED' | 'CANCELLED';
+
+export interface Settings {
+  alertOffline: boolean;
+  alertSpeedRecord: boolean;
+  alertMatchPoint: boolean;
+  retroSounds: boolean;
+}
+
+export interface User {
+  id: string;
+  pseudo: string;
+  email: string;
+  settings: Settings;
+}
+
+export interface Session {
+  token: string;
+  user: User;
+}
+
+export interface Match {
+  id: string;
+  borneId: string;
+  status: MatchStatus;
+  targetScore: number;
+  left: { id: string; pseudo: string } | null;
+  right: { id: string; pseudo: string } | null;
+  score: { left: number; right: number };
+  winner: Side | null;
+  matchPoint: Side | null;
+  endRequests: Side[];
+  waitingUntil: string | null;
+  countdownEndsAt: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationSec: number;
+  stats: { maxSpeed: number; maxStreak: number; longestRally: number; totalBounces: number };
+  feed: { text: string; kind: string; at: string }[];
+}
+
+export interface Stats {
+  played: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  streak: { result: 'V' | 'D'; count: number } | null;
+  recent: {
+    id: string;
+    result: 'V' | 'D' | null;
+    status: MatchStatus;
+    me: string;
+    opponent: string;
+    scoreMe: number;
+    scoreOpponent: number;
+    endedAt: string;
+  }[];
+}
+
+export type Leaderboard = { rank: number; pseudo: string; played: number; wins: number; winRate: number }[];
