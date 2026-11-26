@@ -1,31 +1,83 @@
 /*
  * Exemple de partie réseau de la borne Pong (ESP32) — à intégrer dans le firmware de Nathan.
- * Implémente docs/CONTRAT-BORNE.md : statut + Last Will, réception des commandes, envoi des buts.
+ * Implémente docs/CONTRAT-BORNE.md : statut + Last Will, affichage du QR code sur la matrice 24×24,
+ * réception des commandes, envoi des buts, avec TLS et mot de passe pour le serveur en ligne.
  *
  * Bibliothèques (gestionnaire Arduino) :
  *   - PubSubClient (Nick O'Leary)
  *   - ArduinoJson (Benoît Blanchon), version 7
+ *   - QRCode de Richard Moore (github.com/ricmoo/QRCode) : copier qrcode.c et qrcode.h dans le dossier du
+ *     croquis en les renommant qrcode_gen.c / qrcode_gen.h (et corriger l'#include en tête de qrcode_gen.c).
+ *     Sur ESP32, un <qrcode.h> existe déjà dans le cœur Arduino et masquerait la bibliothèque.
  *
  * Le jeu lui-même (matrice, boutons, balle) n'est pas ici : branche tes fonctions
  * sur les « À FAIRE » ci-dessous.
  */
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include "qrcode_gen.h"  // QRCode de ricmoo, renommé (voir en-tête)
 
 // ─── Réglages ───────────────────────────────────────────────────────────────
 const char* WIFI_SSID = "MON_WIFI";
 const char* WIFI_PASS = "MON_MOT_DE_PASSE";
+const char* BORNE_ID = "borne-01";       // = le QR code collé sur la borne : pong://borne/borne-01
+
+// Serveur en ligne (démo) : TLS + mot de passe. Mettre à false pour le broker local du Mac.
+#define SERVEUR_EN_LIGNE true
+
+#if SERVEUR_EN_LIGNE
+const char* MQTT_HOST = "pong.164-132-199-27.sslip.io";
+const uint16_t MQTT_PORT = 8883;
+const char* MQTT_PASS = "MOT_DE_PASSE_DE_LA_BORNE";  // donné par Mathis, propre à cette borne
+// Autorité racine qui a signé le certificat du serveur (Let's Encrypt « ISRG Root X1 »).
+// Coller ici le contenu de https://letsencrypt.org/certs/isrgrootx1.pem, lignes BEGIN/END comprises.
+const char* ROOT_CA = R"PEM(
+-----BEGIN CERTIFICATE-----
+... à remplacer ...
+-----END CERTIFICATE-----
+)PEM";
+WiFiClientSecure wifi;
+#else
 const char* MQTT_HOST = "192.168.1.42";  // IP du Mac qui fait tourner docker compose
 const uint16_t MQTT_PORT = 1883;
-const char* BORNE_ID = "borne-01";       // = le QR code collé sur la borne : pong://borne/borne-01
+WiFiClient wifi;
+#endif
+
+// ─── QR code sur la matrice ────────────────────────────────────────────────
+// Le serveur envoie un code (« PONG:7K3QX9MZ ») tant qu'il reste une place dans la partie.
+// QR version 1 = 21 × 21 modules : il tient dans la matrice 24 × 24 avec 1 pixel de marge.
+const int MATRIX_SIZE = 24;
+const int QR_OFFSET = 1;
+
+// À FAIRE : remplacer par la fonction d'affichage de la matrice.
+void setPixel(int x, int y, bool on) { /* matrix.drawPixel(x, y, on ? COULEUR_CLAIRE : NOIR); */ }
+void showMatrix() { /* matrix.show(); */ }
+
+void drawQr(const char* text) {
+  QRCode qr;
+  uint8_t buffer[qrcode_getBufferSize(1)];
+  if (qrcode_initText(&qr, buffer, 1, ECC_QUARTILE, text) < 0) {
+    Serial.println("Code trop long pour un QR version 1");
+    return;
+  }
+  // Fond ALLUMÉ, modules sombres ÉTEINTS : les téléphones lisent des modules sombres sur fond clair.
+  for (int y = 0; y < MATRIX_SIZE; y++) {
+    for (int x = 0; x < MATRIX_SIZE; x++) {
+      int mx = x - QR_OFFSET, my = y - QR_OFFSET;
+      bool dark = mx >= 0 && my >= 0 && mx < qr.size && my < qr.size && qrcode_getModule(&qr, mx, my);
+      setPixel(x, y, !dark);
+    }
+  }
+  showMatrix();
+}
 
 // ─── Topics ─────────────────────────────────────────────────────────────────
 String topicStatus = String("pong/bornes/") + BORNE_ID + "/status";
 String topicCommands = String("pong/bornes/") + BORNE_ID + "/commands";
 String topicEvents = String("pong/bornes/") + BORNE_ID + "/events";
 
-WiFiClient wifi;
 PubSubClient mqtt(wifi);
 
 // ─── État de la partie ──────────────────────────────────────────────────────
@@ -43,10 +95,19 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
   if (deserializeJson(doc, payload, length)) return;  // JSON invalide : on ignore
   const char* type = doc["type"] | "";
 
-  if (strcmp(type, "lobby") == 0) {
-    // À FAIRE (facultatif) : afficher « <left> VS ??? » sur la matrice
+  if (strcmp(type, "qr") == 0) {
+    // code = texte à afficher en QR ; null = plus de place, effacer le QR (afficher les pseudos, « PRÊTS ! »…)
+    if (doc["code"].is<const char*>()) drawQr(doc["code"]);
+    else Serial.println("QR masqué");
+
+  } else if (strcmp(type, "lobby") == 0) {
+    // Joueurs dans la salle. À FAIRE (facultatif) : afficher les pseudos à côté ou à la place du QR,
+    // puis « PRÊTS ! » quand ready = true (ils lancent la partie depuis l'appli).
     const char* left = doc["left"] | "???";
-    Serial.printf("Lobby : %s attend\n", left);
+    const char* right = doc["right"] | "???";
+    bool ready = doc["ready"] | false;
+    Serial.printf("Salle : %s vs %s%s\n", left, right, ready ? " (prêts, lancement depuis l'appli)" : "");
+
 
   } else if (strcmp(type, "start") == 0) {
     matchId = doc["matchId"].as<String>();
@@ -119,7 +180,13 @@ void connectMqtt() {
   while (!mqtt.connected()) {
     Serial.print("MQTT... ");
     // Last Will : si la borne disparaît, le broker publie « offline » à sa place.
-    if (mqtt.connect(BORNE_ID, topicStatus.c_str(), 1, true, "offline")) {
+#if SERVEUR_EN_LIGNE
+    // Identifiant MQTT = id de la borne : le broker ne l'autorise que sur ses propres topics.
+    bool ok = mqtt.connect(BORNE_ID, BORNE_ID, MQTT_PASS, topicStatus.c_str(), 1, true, "offline");
+#else
+    bool ok = mqtt.connect(BORNE_ID, topicStatus.c_str(), 1, true, "offline");
+#endif
+    if (ok) {
       Serial.println("OK");
       mqtt.publish(topicStatus.c_str(), "online", true);  // retained
       mqtt.subscribe(topicCommands.c_str(), 1);
@@ -135,6 +202,9 @@ void connectMqtt() {
 
 void setup() {
   Serial.begin(115200);
+#if SERVEUR_EN_LIGNE
+  wifi.setCACert(ROOT_CA);   // refuse tout serveur dont le certificat n'est pas signé par cette autorité
+#endif
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onCommand);
   mqtt.setBufferSize(512);   // les commandes « start » dépassent les 256 octets par défaut

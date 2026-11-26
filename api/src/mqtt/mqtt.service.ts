@@ -19,6 +19,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     this.client = mqtt.connect(url, {
       clientId: `pong-api-${process.pid}`,
       reconnectPeriod: 2000,
+      // En prod, le broker refuse les connexions anonymes (voir deploy/mosquitto).
+      username: process.env.MQTT_USERNAME || undefined,
+      password: process.env.MQTT_PASSWORD || undefined,
     });
     this.client.on('connect', () => {
       this.logger.log(`Connecté au broker ${url}`);

@@ -1,0 +1,12 @@
+# Droits d'accès MQTT (production).
+# %u = l'identifiant MQTT. Chaque borne se connecte avec son identifiant de borne (ex. borne-01) :
+# elle ne peut publier que son statut et ses événements, et ne lit que ses propres commandes.
+# Une borne volée ou piratée ne peut donc ni écouter ni se faire passer pour une autre.
+
+pattern write pong/bornes/%u/status
+pattern write pong/bornes/%u/events
+pattern read pong/bornes/%u/commands
+
+# L'API voit et pilote toutes les bornes.
+user pong-api
+topic readwrite pong/#

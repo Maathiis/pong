@@ -1,6 +1,7 @@
 import { TabList, Tabs, TabSlot, TabTrigger, type TabTriggerSlotProps } from 'expo-router/ui';
 import { Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LiveOverlays } from '@/components/LiveOverlays';
 import { PixelIcon, type IconName } from '@/components/PixelIcon';
 import { P } from '@/components/ui';
 import { LiveProvider } from '@/lib/live';
@@ -25,6 +26,7 @@ export default function TabsLayout() {
           </TabTrigger>
         </TabList>
       </Tabs>
+      <LiveOverlays />
     </LiveProvider>
   );
 }

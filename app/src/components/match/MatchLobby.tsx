@@ -7,7 +7,7 @@ import type { Match } from '@/lib/types';
 import { mmss, useNow } from '@/lib/useNow';
 import { MatchScreen, PlayersCard, QrGlyph, Target } from './shared';
 
-/** Le joueur a scanné la borne, il attend que le second joueur scanne à son tour. */
+/** Le joueur est dans la salle, il attend le second joueur. */
 export function MatchLobby({ match }: { match: Match }) {
   const { leave } = useLive();
   const now = useNow(true, 1000);
@@ -26,7 +26,7 @@ export function MatchLobby({ match }: { match: Match }) {
           EN ATTENTE DU JOUEUR 2
         </P>
         <T size={24} style={{ textAlign: 'center' }}>
-          Ton adversaire doit scanner la même borne.
+          La borne affiche un nouveau QR code : ton adversaire le scanne avec son téléphone.
         </T>
         <T size={20} color={colors.inkSoft} style={{ textAlign: 'center' }}>
           Tu joues à gauche sur {match.borneId}.

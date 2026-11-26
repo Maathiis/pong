@@ -20,6 +20,7 @@ export function toPublicUser(u: User) {
       alertSpeedRecord: u.alertSpeedRecord,
       alertMatchPoint: u.alertMatchPoint,
       retroSounds: u.retroSounds,
+      speedAlertThreshold: u.speedAlertThreshold,
     },
   };
 }

@@ -19,6 +19,8 @@ export const users = pgTable('users', {
   consentAt: timestamp('consent_at', { withTimezone: true }).notNull(),
   alertOffline: boolean('alert_offline').notNull().default(true),
   alertSpeedRecord: boolean('alert_speed_record').notNull().default(true),
+  /** Seuil d'alerte de vitesse de balle, en multiple de la vitesse de départ. */
+  speedAlertThreshold: real('speed_alert_threshold').notNull().default(2.5),
   alertMatchPoint: boolean('alert_match_point').notNull().default(false),
   retroSounds: boolean('retro_sounds').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -32,7 +34,7 @@ export const bornes = pgTable('bornes', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export type MatchStatus = 'WAITING' | 'COUNTDOWN' | 'LIVE' | 'FINISHED' | 'INTERRUPTED' | 'CANCELLED';
+export type MatchStatus = 'WAITING' | 'READY' | 'COUNTDOWN' | 'LIVE' | 'FINISHED' | 'INTERRUPTED' | 'CANCELLED';
 export type Side = 'left' | 'right';
 
 export const matches = pgTable('matches', {

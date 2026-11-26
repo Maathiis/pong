@@ -51,7 +51,8 @@
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": true
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

@@ -7,9 +7,10 @@ import { MatchVersus } from '@/components/match/MatchVersus';
 
 /**
  * Onglet MATCH : l'écran affiché suit l'état de la partie, poussé en temps réel par l'API.
- *   aucune partie → scan du QR code de la borne
- *   WAITING       → salle d'attente (le second joueur doit scanner)
- *   COUNTDOWN     → présentation des joueurs + compte à rebours
+ *   aucune partie → scan du QR code affiché sur la matrice de la borne
+ *   WAITING       → salle d'attente (le second joueur scanne le nouveau QR code)
+ *   READY         → les deux joueurs sont là, bouton « Lancer la partie »
+ *   COUNTDOWN     → compte à rebours
  *   LIVE          → score et stats en direct
  *   FINISHED / INTERRUPTED → écran de fin
  */
@@ -18,6 +19,7 @@ export default function MatchTab() {
   switch (match?.status) {
     case 'WAITING':
       return <MatchLobby match={match} />;
+    case 'READY':
     case 'COUNTDOWN':
       return <MatchVersus match={match} />;
     case 'LIVE':

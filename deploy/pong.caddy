@@ -1,0 +1,6 @@
+# À copier dans /srv/fireline/edge/sites/ sur le VPS (importé par le Caddyfile commun).
+# Caddy obtient le certificat HTTPS tout seul et le renouvelle ; WebSocket (Socket.IO) passe sans réglage.
+pong.164-132-199-27.sslip.io {
+	import common
+	reverse_proxy pong-api:3000
+}

@@ -7,6 +7,7 @@ import { defaultServerUrl, getServerUrl, setServerUrl } from '@/lib/config';
 import { useLive } from '@/lib/live';
 import { colors, fonts } from '@/lib/theme';
 import type { Settings } from '@/lib/types';
+import { speedLabel } from '@/lib/useNow';
 
 export default function Reglages() {
   const { user, setUser, signOut } = useAuth();
@@ -15,7 +16,7 @@ export default function Reglages() {
   const [server, setServer] = useState(getServerUrl());
   const [editingServer, setEditingServer] = useState(false);
 
-  async function toggle(key: keyof Settings, value: boolean) {
+  async function toggle<K extends keyof Settings>(key: K, value: Settings[K]) {
     if (!user) return;
     setError(null);
     setUser({ ...user, settings: { ...user.settings, [key]: value } }); // affichage immédiat
@@ -31,30 +32,29 @@ export default function Reglages() {
     const url = await setServerUrl(server);
     setServer(url);
     setEditingServer(false);
-    Alert.alert('Adresse enregistrée', `L'appli utilisera ${url}.\nRelance l'appli si la connexion temps réel ne revient pas.`);
+    Alert.alert(
+      'Adresse enregistrée',
+      `L'appli utilisera ${url}.\nRelance l'appli si la connexion temps réel ne revient pas.`,
+    );
     refresh().catch(() => undefined);
   }
 
   function confirmDelete() {
-    Alert.alert(
-      'Supprimer ton compte ?',
-      "Ton pseudo, tes scores et ton historique seront effacés. C'est définitif.",
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await api.deleteAccount();
-              await signOut();
-            } catch (e) {
-              setError((e as Error).message);
-            }
-          },
+    Alert.alert('Supprimer ton compte ?', "Ton pseudo, tes scores et ton historique seront effacés. C'est définitif.", [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.deleteAccount();
+            await signOut();
+          } catch (e) {
+            setError((e as Error).message);
+          }
         },
-      ],
-    );
+      },
+    ]);
   }
 
   if (!user) return null;
@@ -63,9 +63,14 @@ export default function Reglages() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.cream }}>
       <Header title="RÉGLAGES" />
-      <ScrollView contentContainerStyle={{ flexGrow: 1, padding: 20, paddingTop: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1, padding: 20, paddingTop: 16, gap: 14 }}
+        keyboardShouldPersistTaps="handled"
+      >
         <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-          <View style={{ width: 52, height: 52, backgroundColor: colors.apricot, borderWidth: 4, borderColor: colors.ink }} />
+          <View
+            style={{ width: 52, height: 52, backgroundColor: colors.apricot, borderWidth: 4, borderColor: colors.ink }}
+          />
           <View style={{ gap: 4, flex: 1 }}>
             <P size={14}>{user.pseudo}</P>
             <T size={20} color={colors.inkSoft} numberOfLines={1}>
@@ -78,9 +83,47 @@ export default function Reglages() {
           <Line label="Borne hors ligne">
             <Toggle label="Borne hors ligne" value={s.alertOffline} onChange={(v) => toggle('alertOffline', v)} />
           </Line>
-          <Line label="Record de vitesse de balle">
-            <Toggle label="Record de vitesse de balle" value={s.alertSpeedRecord} onChange={(v) => toggle('alertSpeedRecord', v)} />
+          <Line label="Balle plus rapide que…">
+            <Toggle
+              label="Balle plus rapide que le seuil"
+              value={s.alertSpeedRecord}
+              onChange={(v) => toggle('alertSpeedRecord', v)}
+            />
           </Line>
+          {s.alertSpeedRecord && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 12,
+                paddingBottom: 10,
+                borderBottomWidth: 3,
+                borderColor: colors.ink,
+              }}
+            >
+              <T size={20} color={colors.inkSoft}>
+                Seuil d'alerte
+              </T>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Step
+                  label="Baisser le seuil"
+                  sign="-"
+                  disabled={s.speedAlertThreshold <= 1.5}
+                  onPress={() => toggle('speedAlertThreshold', Math.round((s.speedAlertThreshold - 0.5) * 10) / 10)}
+                />
+                <P size={12} style={{ minWidth: 56, textAlign: 'center' }}>
+                  {speedLabel(s.speedAlertThreshold)}
+                </P>
+                <Step
+                  label="Monter le seuil"
+                  sign="+"
+                  disabled={s.speedAlertThreshold >= 5}
+                  onPress={() => toggle('speedAlertThreshold', Math.round((s.speedAlertThreshold + 0.5) * 10) / 10)}
+                />
+              </View>
+            </View>
+          )}
           <Line label="Balle de match" last>
             <Toggle label="Balle de match" value={s.alertMatchPoint} onChange={(v) => toggle('alertMatchPoint', v)} />
           </Line>
@@ -177,6 +220,40 @@ function Line({
     >
       <T size={22}>{label}</T>
       {children}
+    </Pressable>
+  );
+}
+
+function Step({
+  sign,
+  label,
+  onPress,
+  disabled,
+}: {
+  sign: string;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={6}
+      style={{
+        width: 34,
+        height: 34,
+        borderWidth: 3,
+        borderColor: colors.ink,
+        backgroundColor: colors.apricot,
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      <P size={12}>{sign}</P>
     </Pressable>
   );
 }

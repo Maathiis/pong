@@ -11,3 +11,4 @@ app/web-build/
 app/ios/
 app/android/
 app/expo-env.d.ts
+deploy/mosquitto/secrets/

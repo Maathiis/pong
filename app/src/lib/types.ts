@@ -1,13 +1,15 @@
 /** Types renvoyés par l'API (voir api/src). */
 
 export type Side = 'left' | 'right';
-export type MatchStatus = 'WAITING' | 'COUNTDOWN' | 'LIVE' | 'FINISHED' | 'INTERRUPTED' | 'CANCELLED';
+export type MatchStatus = 'WAITING' | 'READY' | 'COUNTDOWN' | 'LIVE' | 'FINISHED' | 'INTERRUPTED' | 'CANCELLED';
 
 export interface Settings {
   alertOffline: boolean;
   alertSpeedRecord: boolean;
   alertMatchPoint: boolean;
   retroSounds: boolean;
+  /** seuil de l'alerte de vitesse, en multiple de la vitesse de départ */
+  speedAlertThreshold: number;
 }
 
 export interface User {
@@ -61,3 +63,10 @@ export interface Stats {
 }
 
 export type Leaderboard = { rank: number; pseudo: string; played: number; wins: number; winRate: number }[];
+
+export interface Alert {
+  kind: 'speed' | 'match_point' | 'borne_offline';
+  title: string;
+  body: string;
+  at: string;
+}

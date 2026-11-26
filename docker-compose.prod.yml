@@ -1,0 +1,66 @@
+# Pong connecté sur le VPS. Lancement : docker compose -f docker-compose.prod.yml up -d --build
+# Guide complet : docs/DEPLOIEMENT.md
+#
+# - L'API n'ouvre aucun port : Caddy (projet « edge », déjà sur le VPS) la joint par le réseau
+#   Docker partagé « fireline-edge » et la publie en HTTPS.
+# - Mosquitto n'ouvre que le port 8883 (MQTT chiffré en TLS, mot de passe obligatoire) pour les bornes.
+# - Postgres n'est accessible que depuis l'API.
+name: pong
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pong
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?à définir dans .env}
+      POSTGRES_DB: pong
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pong -d pong"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "8883:8883" # bornes, depuis Internet, TLS uniquement
+    volumes:
+      - ./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./deploy/mosquitto/acl:/mosquitto/config/acl:ro
+      - ./deploy/mosquitto/secrets:/mosquitto/secrets # mots de passe + certificat, créés sur le VPS
+      - mqtt-data:/mosquitto/data
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: postgres://pong:${POSTGRES_PASSWORD}@db:5432/pong
+      MQTT_URL: mqtt://mqtt:1883 # listener interne, jamais publié
+      MQTT_USERNAME: pong-api
+      MQTT_PASSWORD: ${MQTT_API_PASSWORD:?à définir dans .env}
+      JWT_SECRET: ${JWT_SECRET:?à définir dans .env}
+      TARGET_SCORE: ${TARGET_SCORE:-7}
+      PORT: 3000
+    depends_on:
+      db:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+    networks:
+      default:
+      edge:
+        aliases:
+          - pong-api # nom utilisé par Caddy : reverse_proxy pong-api:3000
+    restart: unless-stopped
+
+networks:
+  edge:
+    external: true
+    name: fireline-edge
+
+volumes:
+  db-data:
+  mqtt-data:

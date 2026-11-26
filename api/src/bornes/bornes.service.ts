@@ -1,8 +1,15 @@
-import { Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { asc, eq } from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
 import { bornes, type Borne } from '../db/schema.js';
 import { MqttService } from '../mqtt/mqtt.service.js';
+import { AlertsService } from '../realtime/alerts.service.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 
 @Injectable()
@@ -13,17 +20,34 @@ export class BornesService implements OnModuleInit {
     @Inject(DB) private readonly db: Db,
     private readonly mqtt: MqttService,
     private readonly realtime: RealtimeGateway,
+    private readonly alerts: AlertsService,
   ) {}
 
   onModuleInit() {
     // Une borne inconnue est créée automatiquement à son premier message de statut.
     this.mqtt.onStatus(async (id, online) => {
+      const [before] = await this.db
+        .select({ online: bornes.online })
+        .from(bornes)
+        .where(eq(bornes.id, id));
       await this.db
         .insert(bornes)
         .values({ id, online, lastSeenAt: new Date() })
-        .onConflictDoUpdate({ target: bornes.id, set: { online, lastSeenAt: new Date() } });
+        .onConflictDoUpdate({
+          target: bornes.id,
+          set: { online, lastSeenAt: new Date() },
+        });
       this.logger.log(`${id} ${online ? 'en ligne' : 'hors ligne'}`);
       this.realtime.broadcast('borne:status', { id, online });
+      // Alerte seulement sur un vrai passage en ligne → hors ligne (pas au redémarrage du broker, par ex.).
+      if (before?.online && !online) {
+        await this.alerts.send(
+          'borne_offline',
+          null,
+          `${id} hors ligne`,
+          'La borne a perdu sa connexion au serveur.',
+        );
+      }
     });
   }
 
@@ -32,8 +56,14 @@ export class BornesService implements OnModuleInit {
   }
 
   async get(id: string): Promise<Borne> {
-    const [borne] = await this.db.select().from(bornes).where(eq(bornes.id, id));
-    if (!borne) throw new NotFoundException(`Borne « ${id} » inconnue. Est-elle déjà connectée au broker ?`);
+    const [borne] = await this.db
+      .select()
+      .from(bornes)
+      .where(eq(bornes.id, id));
+    if (!borne)
+      throw new NotFoundException(
+        `Borne « ${id} » inconnue. Est-elle déjà connectée au broker ?`,
+      );
     return borne;
   }
 }

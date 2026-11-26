@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Borne virtuelle · Pong connecté</title>
+<!--
+  Borne virtuelle : se comporte exactement comme l'ESP32 décrit dans docs/CONTRAT-BORNE.md.
+  Matrice 24 × 24 (QR, attente, compte à rebours, jeu, fin) + boutons des raquettes.
+  Se connecte au broker MQTT par WebSocket (Mosquitto local : ws://localhost:9001).
+  Ouvrir ce fichier dans Chrome ou Safari sur le Mac, après « docker compose up -d ».
+-->
+<script src="lib/mqtt.min.js"></script>
+<script src="lib/qrcode.js"></script>
+<style>
+  :root {
+    --cream: #FFF1C9; --ink: #2B1B4D; --soft: #5A4A7A; --sky: #6FC3FF; --orange: #FF7A3D;
+    --apricot: #FFB24D; --mint: #5EE6D0; --pink: #FF8FB1; --lime: #9BEA6A; --off: #D9480F;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--cream); color: var(--ink); font: 15px/1.4 ui-monospace, Menlo, monospace; }
+  header { background: var(--sky); border-bottom: 4px solid var(--ink); padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: 1px; color: #fff; text-shadow: 3px 3px 0 var(--ink); }
+  header p { margin: 0; color: var(--ink); }
+  main { display: grid; grid-template-columns: minmax(0, 520px) minmax(0, 1fr); gap: 24px; padding: 24px; max-width: 1180px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card { background: #fff; border: 4px solid var(--ink); box-shadow: 5px 5px 0 var(--ink); padding: 16px; }
+  .borne { background: #241a3d; padding: 18px; }
+  canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+  .state { margin-top: 12px; display: flex; justify-content: space-between; color: var(--cream); font-weight: 700; }
+  .pads { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .pad { border: 4px solid var(--ink); padding: 10px; display: grid; gap: 8px; }
+  .pad.left { background: var(--mint); } .pad.right { background: var(--pink); }
+  .pad h3 { margin: 0; font-size: 13px; display: flex; justify-content: space-between; }
+  .pad button { height: 54px; font-size: 18px; }
+  button { font: inherit; font-weight: 700; color: var(--ink); background: #fff; border: 3px solid var(--ink); box-shadow: 0 4px 0 var(--ink); cursor: pointer; padding: 6px 12px; user-select: none; touch-action: none; }
+  button:active, button.held { transform: translateY(4px); box-shadow: none; }
+  button.primary { background: var(--orange); }
+  button.danger { background: var(--pink); }
+  button:disabled { opacity: .45; cursor: default; }
+  label { display: grid; gap: 4px; font-size: 13px; font-weight: 700; }
+  input[type=text], input[type=password] { font: inherit; border: 3px solid var(--ink); padding: 6px 8px; width: 100%; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+  .row > label { flex: 1; min-width: 160px; }
+  .side { display: grid; gap: 20px; align-content: start; }
+  h2 { margin: 0 0 10px; font-size: 14px; letter-spacing: 1px; }
+  .dot { display: inline-block; width: 12px; height: 12px; background: var(--off); margin-right: 8px; vertical-align: -1px; }
+  .dot.on { background: #1E9E3A; }
+  .players { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: center; text-align: center; }
+  .players div { border: 3px solid var(--ink); padding: 8px; font-weight: 700; }
+  .players .l { background: var(--mint); } .players .r { background: var(--pink); }
+  .score { font-size: 28px; font-weight: 800; }
+  #log { height: 220px; overflow: auto; background: #241a3d; color: var(--cream); padding: 10px; font-size: 12px; white-space: pre-wrap; }
+  #log .out { color: var(--apricot); } #log .in { color: var(--mint); } #log .sys { color: #b9add3; }
+  .hint { color: var(--soft); font-size: 13px; margin: 8px 0 0; }
+  kbd { border: 2px solid var(--ink); padding: 0 4px; background: var(--cream); }
+</style>
+</head>
+<body>
+<header>
+  <h1>BORNE VIRTUELLE</h1>
+  <p>Joue le rôle de l'ESP32 : même MQTT, même matrice 24 × 24, mêmes boutons.</p>
+</header>
+
+<main>
+  <section>
+    <div class="card borne">
+      <canvas id="matrix" width="480" height="480" aria-label="Matrice LED 24 par 24"></canvas>
+      <div class="state"><span id="stateLabel">Hors ligne</span><span id="speedLabel"></span></div>
+    </div>
+    <div class="pads">
+      <div class="pad left">
+        <h3><span>RAQUETTE GAUCHE</span><span><kbd>Z</kbd>/<kbd>W</kbd> · <kbd>S</kbd></span></h3>
+        <button data-pad="left" data-dir="-1">▲ HAUT</button>
+        <button data-pad="left" data-dir="1">▼ BAS</button>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="botLeft"> Robot (pour jouer seul)</label>
+      </div>
+      <div class="pad right">
+        <h3><span>RAQUETTE DROITE</span><span><kbd>↑</kbd> · <kbd>↓</kbd></span></h3>
+        <button data-pad="right" data-dir="-1">▲ HAUT</button>
+        <button data-pad="right" data-dir="1">▼ BAS</button>
+        <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="botRight"> Robot (pour jouer seul)</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="side">
+    <div class="card">
+      <h2><span class="dot" id="netDot"></span>CONNEXION AU BROKER</h2>
+      <div class="row">
+        <label>Adresse WebSocket<input type="text" id="url" value="ws://localhost:9001"></label>
+        <label>Identifiant de la borne<input type="text" id="borneId" value="borne-01"></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label>Mot de passe MQTT (vide en local)<input type="password" id="pass"></label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="connectBtn">BRANCHER LA BORNE</button>
+        <button class="danger" id="cutBtn" disabled>COUPER LE WI-FI</button>
+        <button id="abortBtn" disabled>RESET (ABORT)</button>
+      </div>
+      <p class="hint">« Couper le Wi-Fi » coupe la connexion brutalement : le broker publie alors le Last Will <code>offline</code>, comme pour une vraie panne.</p>
+    </div>
+
+    <div class="card">
+      <h2>PARTIE</h2>
+      <div class="players">
+        <div class="l" id="pLeft">—</div>
+        <div class="score" id="score">0 : 0</div>
+        <div class="r" id="pRight">—</div>
+      </div>
+      <p class="hint" id="qrText">Aucun QR reçu.</p>
+    </div>
+
+    <div class="card">
+      <h2>MESSAGES MQTT</h2>
+      <div id="log" aria-live="polite"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+// ───────────────────────── Matrice 24 × 24 ─────────────────────────
+const N = 24, CELL = 20;
+const COLORS = { off: '#1b1426', light: '#FFF1C9', left: '#5EE6D0', right: '#FF8FB1', ball: '#FFB24D', text: '#FFFFFF', win: '#9BEA6A' };
+const canvas = document.getElementById('matrix'), ctx = canvas.getContext('2d');
+let frame = []; // frame[y][x] = couleur
+const clear = (c = COLORS.off) => { frame = Array.from({ length: N }, () => Array(N).fill(c)); };
+const px = (x, y, c) => { if (x >= 0 && y >= 0 && x < N && y < N) frame[y][x] = c; };
+function draw() {
+  ctx.fillStyle = '#120d1c'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    ctx.fillStyle = frame[y][x];
+    ctx.beginPath(); ctx.arc(x * CELL + CELL / 2, y * CELL + CELL / 2, CELL * 0.42, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+// Police 3 × 5 pour les chiffres et quelques lettres.
+const FONT = {
+  '0':'111101101101111','1':'010110010010111','2':'111001111100111','3':'111001111001111','4':'101101111001001',
+  '5':'111100111001111','6':'111100111101111','7':'111001010010010','8':'111101111101111','9':'111101111001111',
+  'G':'111100101101111','O':'111101101101111','K':'101110100110101','P':'111101111100100','R':'111101110101101',
+  'E':'111100111100111','T':'111010010010010','W':'101101101111101','I':'111010010010111','N':'101111111111101',
+  'D':'110101101101110','F':'111100110100100','.':'000000000000010',
+  '?':'111001011000010',':':'000010000010000',' ':'000000000000000',
+};
+function text(str, x0, y0, c = COLORS.text, scale = 1) {
+  [...str].forEach((ch, i) => {
+    const g = FONT[ch] || FONT[' '];
+    for (let r = 0; r < 5; r++) for (let k = 0; k < 3; k++) if (g[r * 3 + k] === '1')
+      for (let a = 0; a < scale; a++) for (let b = 0; b < scale; b++) px(x0 + (i * 4 + k) * scale + a, y0 + r * scale + b, c);
+  });
+}
+const textWidth = (str, scale = 1) => (str.length * 4 - 1) * scale;
+const centered = (str, y, c, scale = 1) => text(str, Math.floor((N - textWidth(str, scale)) / 2), y, c, scale);
+
+// QR version 1 (21 × 21) : fond ALLUMÉ, modules sombres ÉTEINTS, 1 pixel de marge.
+function drawQr(code) {
+  const qr = qrcode(1, 'Q'); qr.addData(code, 'Alphanumeric'); qr.make();
+  const n = qr.getModuleCount();
+  clear(COLORS.light);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (qr.isDark(y, x)) px(x + 1, y + 1, COLORS.off);
+}
+
+// ───────────────────────── État de la borne ─────────────────────────
+const S = {
+  mode: 'offline',            // offline | idle | ready | countdown | playing | over
+  qr: null, left: null, right: null, ready: false,
+  matchId: null, targetScore: 7, countdownEnd: 0, score: { left: 0, right: 0 }, winner: null, overUntil: 0,
+};
+const G = { // le jeu, en « cases » de la matrice
+  padH: 5, padSpeed: 16, v0: 9, ball: { x: 12, y: 12, vx: 0, vy: 0 }, pads: { left: 9.5, right: 9.5 },
+  held: { left: 0, right: 0 }, rallyHits: 0, bounces: 0, maxSpeed: 1, serveAt: 0, serveDir: 1,
+};
+const $ = (id) => document.getElementById(id);
+function setState(label) { $('stateLabel').textContent = label; }
+
+function render(now) {
+  switch (S.mode) {
+    case 'offline': clear(); centered('?', 9, '#5a4a7a', 2); setState('Hors ligne'); break;
+    case 'idle':
+      if (S.qr) { drawQr(S.qr); setState(S.left ? `${S.left} attend le joueur 2 · QR affiché` : 'En attente · QR affiché'); }
+      else { clear(); centered('...', 10, COLORS.light); setState('En attente du serveur'); }
+      break;
+    case 'ready':
+      clear(); centered('PRET', 5, COLORS.win);
+      for (let i = 0; i < G.padH; i++) { px(1, 14 + i, COLORS.left); px(22, 14 + i, COLORS.right); }
+      centered('OK', 14, COLORS.text); setState(`${S.left} contre ${S.right} · lancez depuis l'appli`); break;
+    case 'countdown': {
+      const left = Math.ceil((S.countdownEnd - now) / 1000);
+      clear(); if (left > 0) centered(String(left), 5, COLORS.ball, 3); else centered('GO', 7, COLORS.win, 2);
+      setState(`Compte à rebours · ${S.left} contre ${S.right}`);
+      if (now >= S.countdownEnd + 600) { S.mode = 'playing'; serve(now, Math.random() < 0.5 ? -1 : 1); }
+      break;
+    }
+    case 'playing': drawGame(); setState(`En jeu · premier à ${S.targetScore}`); break;
+    case 'over': {
+      clear(); const c = S.winner === 'left' ? COLORS.left : S.winner === 'right' ? COLORS.right : '#5a4a7a';
+      const blink = Math.floor(now / 300) % 2 === 0;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N / 2; x++) px(S.winner === 'right' ? x + N / 2 : x, y, blink && S.winner ? c : COLORS.off);
+      centered(S.winner ? 'WIN' : 'FIN', 9, COLORS.text);
+      setState(S.winner ? `Victoire de ${S.winner === 'left' ? S.left : S.right}` : 'Partie interrompue');
+      break;
+    }
+  }
+  $('pLeft').textContent = S.left ?? '—'; $('pRight').textContent = S.right ?? '—';
+  $('score').textContent = `${S.score.left} : ${S.score.right}`;
+  $('qrText').textContent = S.qr ? `QR affiché : ${S.qr}` : 'Pas de QR affiché.';
+  $('speedLabel').textContent = S.mode === 'playing' ? `vitesse x${speedMult().toFixed(1).replace('.', ',')}` : '';
+  draw();
+}
+
+// ───────────────────────── Le jeu ─────────────────────────
+const speedMult = () => Math.hypot(G.ball.vx, G.ball.vy) / G.v0;
+function serve(now, dir) {
+  G.ball = { x: 11.5, y: 11.5, vx: 0, vy: 0 }; G.serveAt = now + 900; G.serveDir = dir;
+  G.rallyHits = 0; G.bounces = 0; G.maxSpeed = 1;
+}
+function drawGame() {
+  clear();
+  for (let y = 0; y < N; y += 2) px(11, y, '#3a2d57'); // filet
+  for (const side of ['left', 'right']) {
+    const x = side === 'left' ? 1 : 22, top = Math.round(G.pads[side]);
+    for (let i = 0; i < G.padH; i++) px(x, top + i, COLORS[side]);
+  }
+  px(Math.round(G.ball.x), Math.round(G.ball.y), COLORS.ball);
+}
+function step(dt, now) {
+  for (const side of ['left', 'right']) {
+    let dir = G.held[side];
+    if ($(side === 'left' ? 'botLeft' : 'botRight').checked) {
+      const target = G.ball.y - G.padH / 2 + 0.5; dir = Math.abs(target - G.pads[side]) < 0.4 ? 0 : Math.sign(target - G.pads[side]);
+    }
+    const bot = $(side === 'left' ? 'botLeft' : 'botRight').checked;
+    // le robot est volontairement plus lent qu'un humain : il finit par rater quand la balle accélère
+    G.pads[side] = Math.min(N - G.padH, Math.max(0, G.pads[side] + dir * G.padSpeed * (bot ? 0.55 : 1) * dt));
+  }
+  const b = G.ball;
+  if (b.vx === 0 && now >= G.serveAt) { b.vx = G.serveDir * G.v0 * 0.85; b.vy = (Math.random() - 0.5) * G.v0; }
+  if (b.vx === 0) return;
+  b.x += b.vx * dt; b.y += b.vy * dt;
+  if (b.y < 0) { b.y = -b.y; b.vy = Math.abs(b.vy); G.bounces++; }
+  if (b.y > N - 1) { b.y = 2 * (N - 1) - b.y; b.vy = -Math.abs(b.vy); G.bounces++; }
+  for (const side of ['left', 'right']) {
+    const padX = side === 'left' ? 1 : 22, coming = side === 'left' ? b.vx < 0 : b.vx > 0;
+    const crossing = side === 'left' ? b.x <= padX + 0.5 && b.x > padX - 0.6 : b.x >= padX - 0.5 && b.x < padX + 0.6;
+    if (coming && crossing && b.y >= G.pads[side] - 0.6 && b.y <= G.pads[side] + G.padH - 0.4) {
+      const offset = (b.y - (G.pads[side] + G.padH / 2)) / (G.padH / 2); // -1 … 1 selon l'endroit touché
+      const sp = Math.min(Math.hypot(b.vx, b.vy) * 1.08, G.v0 * 3.2);
+      const angle = offset * 0.9;
+      b.vx = (side === 'left' ? 1 : -1) * sp * Math.cos(angle); b.vy = sp * Math.sin(angle);
+      b.x = side === 'left' ? padX + 0.6 : padX - 0.6;
+      G.rallyHits++; G.maxSpeed = Math.max(G.maxSpeed, speedMult());
+    }
+  }
+  if (b.x < -0.5) goal('right', now);
+  else if (b.x > N - 0.5) goal('left', now);
+}
+function goal(side, now) {
+  S.score[side]++; // affichage immédiat ; le serveur renvoie ensuite le score officiel (« score »)
+  publish('events', { type: 'goal', matchId: S.matchId, side, rallyHits: G.rallyHits, bounces: G.bounces, maxSpeed: Math.round(G.maxSpeed * 10) / 10 });
+  serve(now, side === 'left' ? 1 : -1); // le perdant de l'échange reçoit le service
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (S.mode === 'playing') step(dt, now);
+  if (S.mode === 'over' && now > S.overUntil) { S.mode = 'idle'; S.left = S.right = null; S.score = { left: 0, right: 0 }; }
+  render(now);
+  requestAnimationFrame(loop);
+}
+
+// ───────────────────────── MQTT ─────────────────────────
+let client = null, borneId = 'borne-01';
+const topic = (k) => `pong/bornes/${borneId}/${k}`;
+function log(dir, msg) {
+  const el = $('log'), line = document.createElement('div');
+  line.className = dir; line.textContent = `${new Date().toLocaleTimeString('fr-FR')} ${dir === 'out' ? '→' : dir === 'in' ? '←' : '·'} ${msg}`;
+  el.prepend(line);
+}
+function publish(kind, obj, opts = { qos: 1 }) {
+  if (!client?.connected) return;
+  const payload = typeof obj === 'string' ? obj : JSON.stringify(obj);
+  client.publish(topic(kind), payload, opts); log('out', `${kind} ${payload}`);
+}
+function onCommand(msg) {
+  log('in', JSON.stringify(msg));
+  switch (msg.type) {
+    case 'qr': S.qr = msg.code; if (S.mode !== 'playing' && S.mode !== 'countdown' && S.mode !== 'over') S.mode = msg.code ? 'idle' : (S.ready ? 'ready' : 'idle'); break;
+    case 'lobby': S.left = msg.left; S.right = msg.right; S.ready = !!msg.ready; S.score = { left: 0, right: 0 };
+      if (S.mode === 'idle' || S.mode === 'ready') S.mode = S.ready ? 'ready' : 'idle'; break;
+    case 'start': S.matchId = msg.matchId; S.left = msg.left; S.right = msg.right; S.targetScore = msg.targetScore ?? 7;
+      S.score = { left: 0, right: 0 }; S.countdownEnd = performance.now() + (msg.countdown ?? 5) * 1000; S.mode = 'countdown';
+      G.pads = { left: 9.5, right: 9.5 }; break;
+    case 'score': S.score = { left: msg.left, right: msg.right }; break;
+    case 'stop': S.winner = msg.winner; S.mode = 'over'; S.overUntil = performance.now() + 3000; S.matchId = null; S.ready = false;
+      break; // les pseudos restent affichés jusqu'à la prochaine salle (« lobby »)
+  }
+}
+function connect() {
+  borneId = $('borneId').value.trim() || 'borne-01';
+  const pass = $('pass').value;
+  client = mqtt.connect($('url').value.trim(), {
+    clientId: borneId, reconnectPeriod: 2000, keepalive: 10,
+    ...(pass ? { username: borneId, password: pass } : {}),
+    will: { topic: topic('status'), payload: 'offline', qos: 1, retain: true },
+  });
+  client.on('connect', () => {
+    $('netDot').classList.add('on'); log('sys', 'connectée au broker');
+    client.subscribe(topic('commands'), { qos: 1 });
+    publish('status', 'online', { qos: 1, retain: true });
+    S.mode = 'idle'; S.matchId = null; // une partie d'avant la coupure a été interrompue par le serveur
+    $('cutBtn').disabled = false; $('abortBtn').disabled = false; $('connectBtn').disabled = true;
+  });
+  client.on('message', (_t, payload) => { try { onCommand(JSON.parse(payload.toString())); } catch { log('sys', 'message illisible'); } });
+  client.on('close', () => { $('netDot').classList.remove('on'); if (S.mode !== 'offline') log('sys', 'connexion perdue'); S.mode = 'offline'; S.qr = null; });
+  client.on('error', (e) => log('sys', `erreur : ${e.message}`));
+}
+$('connectBtn').onclick = () => {
+  if (client) { client.options.reconnectPeriod = 2000; client.reconnect(); $('connectBtn').disabled = true; }
+  else connect();
+};
+$('cutBtn').onclick = () => {
+  // coupure brutale, sans message de déconnexion : le broker publie le Last Will « offline »
+  client.options.reconnectPeriod = 0; client.stream.destroy();
+  log('sys', 'Wi-Fi coupé (Last Will attendu côté broker)');
+  $('connectBtn').disabled = false; $('connectBtn').textContent = 'REBRANCHER'; $('cutBtn').disabled = true;
+};
+$('abortBtn').onclick = () => { if (S.matchId) publish('events', { type: 'abort', matchId: S.matchId }); };
+
+// ───────────────────────── Boutons et clavier ─────────────────────────
+document.querySelectorAll('button[data-pad]').forEach((btn) => {
+  const side = btn.dataset.pad, dir = Number(btn.dataset.dir);
+  const down = (e) => { e.preventDefault(); G.held[side] = dir; btn.classList.add('held'); };
+  const up = () => { if (G.held[side] === dir) G.held[side] = 0; btn.classList.remove('held'); };
+  btn.addEventListener('pointerdown', down); btn.addEventListener('pointerup', up); btn.addEventListener('pointerleave', up);
+});
+const KEYS = { z: ['left', -1], w: ['left', -1], s: ['left', 1], ArrowUp: ['right', -1], ArrowDown: ['right', 1] };
+addEventListener('keydown', (e) => { const k = KEYS[e.key]; if (k && e.target.tagName !== 'INPUT') { e.preventDefault(); G.held[k[0]] = k[1]; } });
+addEventListener('keyup', (e) => { const k = KEYS[e.key]; if (k && G.held[k[0]] === k[1]) G.held[k[0]] = 0; });
+
+clear(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>

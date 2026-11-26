@@ -1,5 +1,9 @@
 import { Logger } from '@nestjs/common';
-import { OnGatewayConnection, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
+import {
+  OnGatewayConnection,
+  WebSocketGateway,
+  WebSocketServer,
+} from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
 import { AuthService } from '../auth/auth.service.js';
 
@@ -17,7 +21,8 @@ export class RealtimeGateway implements OnGatewayConnection {
   constructor(private readonly auth: AuthService) {}
 
   async handleConnection(socket: Socket) {
-    const token = (socket.handshake.auth as { token?: string } | undefined)?.token;
+    const token = (socket.handshake.auth as { token?: string } | undefined)
+      ?.token;
     const user = token ? await this.auth.verify(token) : null;
     if (!user) {
       socket.emit('error', 'unauthorized');
@@ -28,8 +33,14 @@ export class RealtimeGateway implements OnGatewayConnection {
     this.logger.debug(`${user.pseudo} connecté`);
   }
 
-  toUsers(userIds: (string | null | undefined)[], event: string, data: unknown) {
-    const rooms = userIds.filter((id): id is string => !!id).map((id) => `user:${id}`);
+  toUsers(
+    userIds: (string | null | undefined)[],
+    event: string,
+    data: unknown,
+  ) {
+    const rooms = userIds
+      .filter((id): id is string => !!id)
+      .map((id) => `user:${id}`);
     if (rooms.length) this.server.to(rooms).emit(event, data);
   }
 

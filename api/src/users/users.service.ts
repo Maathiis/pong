@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { toPublicUser } from '../auth/auth.service.js';
 import { DB, type Db } from '../db/db.module.js';
-import { matches, users, type Side, type User } from '../db/schema.js';
+import { matchEvents, matches, users, type Side, type User } from '../db/schema.js';
 import { SettingsDto } from './settings.dto.js';
 
 @Injectable()
@@ -20,7 +20,18 @@ export class UsersService {
 
   /** RGPD : supprime le compte. Les parties restent pour l'adversaire, sans le pseudo. */
   async remove(user: User) {
-    await this.db.delete(users).where(eq(users.id, user.id));
+    await this.db.transaction(async (tx) => {
+      // Le fil des parties cite le pseudo en toutes lettres (« NATHAN marque · 3-2 ») : on l'efface aussi.
+      const played = tx
+        .select({ id: matches.id })
+        .from(matches)
+        .where(or(eq(matches.leftUserId, user.id), eq(matches.rightUserId, user.id)));
+      await tx
+        .update(matchEvents)
+        .set({ text: sql`replace(${matchEvents.text}, ${user.pseudo}, 'ANCIEN')` })
+        .where(inArray(matchEvents.matchId, played));
+      await tx.delete(users).where(eq(users.id, user.id));
+    });
   }
 
   async stats(user: User) {

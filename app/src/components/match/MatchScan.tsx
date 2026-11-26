@@ -8,56 +8,57 @@ import { useLive } from '@/lib/live';
 import { colors } from '@/lib/theme';
 import { MatchScreen, PlayersCard, QrGlyph, Target } from './shared';
 
-/** Contenu du QR code collé sur chaque borne : pong://borne/<id> (voir docs/CONTRAT-BORNE.md). */
-export function parseBorneQr(data: string): string | null {
-  const m = /^pong:\/\/borne\/([\w-]{1,32})\/?$/.exec(data.trim());
-  return m ? m[1] : null;
+/** QR code affiché sur la matrice de la borne : « PONG: » + 8 caractères (voir docs/CONTRAT-BORNE.md). */
+export function isJoinCode(data: string) {
+  return /^PONG:[2-9A-HJ-NP-Z]{8}$/i.test(data.trim());
 }
 
+/**
+ * Rejoindre une partie : la borne affiche un QR code sur sa matrice 24 × 24, le joueur le scanne.
+ * Le code change à chaque joueur qui rejoint : il faut être devant la borne pour jouer.
+ */
 export function MatchScan() {
   const { user } = useAuth();
   const { join, bornes, connected } = useLive();
   const focused = useIsFocused();
   const [permission, requestPermission] = useCameraPermissions();
-  const [joining, setJoining] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastScan = useRef<{ data: string; at: number } | null>(null);
 
   async function onScan({ data }: BarcodeScanningResult) {
     // la caméra renvoie le même code plusieurs fois par seconde : on ne traite qu'une fois
     const now = Date.now();
-    if (joining || (lastScan.current?.data === data && now - lastScan.current.at < 3000)) return;
+    if (busy || (lastScan.current?.data === data && now - lastScan.current.at < 3000)) return;
     lastScan.current = { data, at: now };
-
-    const borneId = parseBorneQr(data);
-    if (!borneId) return setError("Ce QR code n'est pas celui d'une borne Pong.");
+    if (!isJoinCode(data)) return setError("Ce QR code n'est pas celui d'une borne Pong.");
     setError(null);
-    setJoining(true);
+    setBusy(true);
     try {
-      await join(borneId);
+      await join(data.trim());
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setJoining(false);
+      setBusy(false);
     }
   }
 
   const onlineCount = Object.values(bornes).filter(Boolean).length;
-  const canScan = permission?.granted && focused && !joining;
+  const camera = permission?.granted && focused && !busy;
 
   return (
     <MatchScreen>
       <PlayersCard left={user?.pseudo ?? null} right={null} />
 
       <Target>
-        {canScan ? (
+        {camera ? (
           <CameraView
             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
             facing="back"
             barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
             onBarcodeScanned={onScan}
           />
-        ) : joining ? (
+        ) : busy ? (
           <ActivityIndicator color={colors.ink} size="large" />
         ) : (
           <QrGlyph />
@@ -69,7 +70,7 @@ export function MatchScan() {
           SCANNE LA BORNE
         </P>
         <T size={24} style={{ textAlign: 'center' }}>
-          Vise le QR code collé sur la borne.
+          Vise le QR code affiché sur la matrice de la borne.
         </T>
         <T size={20} color={colors.inkSoft} style={{ textAlign: 'center' }}>
           Le premier qui scanne joue à gauche.

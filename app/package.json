@@ -6,6 +6,7 @@
     "@expo-google-fonts/press-start-2p": "^0.4.1",
     "@expo-google-fonts/vt323": "^0.4.1",
     "expo": "~58.0.26",
+    "expo-audio": "~58.0.12",
     "expo-camera": "~58.0.14",
     "expo-constants": "~58.0.16",
     "expo-font": "~58.0.12",
