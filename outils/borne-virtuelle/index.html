@@ -94,12 +94,17 @@
       <div class="row" style="margin-top:10px">
         <label>Mot de passe MQTT (vide en local)<input type="password" id="pass"></label>
       </div>
+      <div class="row" style="margin-top:10px">
+        <button id="presetVps">SERVEUR EN LIGNE</button>
+        <button id="presetLocal">MAC (LOCAL)</button>
+      </div>
       <div class="row" style="margin-top:12px">
         <button class="primary" id="connectBtn">BRANCHER LA BORNE</button>
         <button class="danger" id="cutBtn" disabled>COUPER LE WI-FI</button>
         <button id="abortBtn" disabled>RESET (ABORT)</button>
       </div>
-      <p class="hint">« Couper le Wi-Fi » coupe la connexion brutalement : le broker publie alors le Last Will <code>offline</code>, comme pour une vraie panne.</p>
+      <p class="hint">Serveur en ligne : identifiant <code>borne-01</code> et son mot de passe (affiché à la fin de <code>deploy/push.sh</code>). Ne pas brancher la vraie borne en même temps : deux bornes avec le même identifiant se déconnectent mutuellement.</p>
+      <p class="hint">« Couper le Wi-Fi » coupe la connexion brutalement : le broker publie alors le Last Will <code>offline</code>, comme pour une vraie panne. Pendant une partie, la borne continue en local : les buts marqués hors ligne sont renvoyés au rebranchement (le serveur attend 90 s).</p>
     </div>
 
     <div class="card">
@@ -167,6 +172,8 @@ const S = {
   mode: 'offline',            // offline | idle | ready | countdown | playing | over
   qr: null, left: null, right: null, ready: false,
   matchId: null, targetScore: 7, countdownEnd: 0, score: { left: 0, right: 0 }, winner: null, overUntil: 0,
+  net: false,                 // connectée au broker ; une partie continue en local pendant une coupure
+  seq: 0, pending: [],        // numéro du dernier but, et buts à renvoyer à la reconnexion (contrat : « seq »)
 };
 const G = { // le jeu, en « cases » de la matrice
   padH: 5, padSpeed: 16, v0: 9, ball: { x: 12, y: 12, vx: 0, vy: 0 }, pads: { left: 9.5, right: 9.5 },
@@ -193,7 +200,8 @@ function render(now) {
       if (now >= S.countdownEnd + 600) { S.mode = 'playing'; serve(now, Math.random() < 0.5 ? -1 : 1); }
       break;
     }
-    case 'playing': drawGame(); setState(`En jeu · premier à ${S.targetScore}`); break;
+    case 'playing': drawGame();
+      setState(S.net ? `En jeu · premier à ${S.targetScore}` : `En jeu hors ligne · ${S.pending.length} but(s) à renvoyer`); break;
     case 'over': {
       clear(); const c = S.winner === 'left' ? COLORS.left : S.winner === 'right' ? COLORS.right : '#5a4a7a';
       const blink = Math.floor(now / 300) % 2 === 0;
@@ -258,7 +266,8 @@ function step(dt, now) {
 }
 function goal(side, now) {
   S.score[side]++; // affichage immédiat ; le serveur renvoie ensuite le score officiel (« score »)
-  publish('events', { type: 'goal', matchId: S.matchId, side, rallyHits: G.rallyHits, bounces: G.bounces, maxSpeed: Math.round(G.maxSpeed * 10) / 10 });
+  const ev = { type: 'goal', matchId: S.matchId, seq: ++S.seq, side, rallyHits: G.rallyHits, bounces: G.bounces, maxSpeed: Math.round(G.maxSpeed * 10) / 10 };
+  if (S.net) publish('events', ev); else S.pending.push(ev); // renvoyé tel quel (même seq) à la reconnexion
   serve(now, side === 'left' ? 1 : -1); // le perdant de l'échange reçoit le service
 }
 
@@ -287,10 +296,13 @@ function publish(kind, obj, opts = { qos: 1 }) {
 function onCommand(msg) {
   log('in', JSON.stringify(msg));
   switch (msg.type) {
-    case 'qr': S.qr = msg.code; if (S.mode !== 'playing' && S.mode !== 'countdown' && S.mode !== 'over') S.mode = msg.code ? 'idle' : (S.ready ? 'ready' : 'idle'); break;
+    case 'qr': S.qr = msg.code;
+      // un code alors qu'on joue : le serveur a arrêté la partie pendant une coupure trop longue
+      if (msg.code && S.matchId && (S.mode === 'playing' || S.mode === 'countdown')) { S.mode = 'idle'; S.matchId = null; S.pending = []; S.left = S.right = null; S.score = { left: 0, right: 0 }; }
+      if (S.mode !== 'playing' && S.mode !== 'countdown' && S.mode !== 'over') S.mode = msg.code ? 'idle' : (S.ready ? 'ready' : 'idle'); break;
     case 'lobby': S.left = msg.left; S.right = msg.right; S.ready = !!msg.ready; S.score = { left: 0, right: 0 };
       if (S.mode === 'idle' || S.mode === 'ready') S.mode = S.ready ? 'ready' : 'idle'; break;
-    case 'start': S.matchId = msg.matchId; S.left = msg.left; S.right = msg.right; S.targetScore = msg.targetScore ?? 7;
+    case 'start': S.matchId = msg.matchId; S.seq = 0; S.pending = []; S.left = msg.left; S.right = msg.right; S.targetScore = msg.targetScore ?? 7;
       S.score = { left: 0, right: 0 }; S.countdownEnd = performance.now() + (msg.countdown ?? 5) * 1000; S.mode = 'countdown';
       G.pads = { left: 9.5, right: 9.5 }; break;
     case 'score': S.score = { left: msg.left, right: msg.right }; break;
@@ -310,11 +322,18 @@ function connect() {
     $('netDot').classList.add('on'); log('sys', 'connectée au broker');
     client.subscribe(topic('commands'), { qos: 1 });
     publish('status', 'online', { qos: 1, retain: true });
-    S.mode = 'idle'; S.matchId = null; // une partie d'avant la coupure a été interrompue par le serveur
+    S.net = true;
+    if (S.matchId && (S.mode === 'playing' || S.mode === 'countdown')) {
+      // partie en cours avant la coupure : on la continue et on renvoie les buts marqués hors ligne
+      for (const ev of S.pending.splice(0)) publish('events', ev);
+    } else { S.mode = 'idle'; S.matchId = null; }
     $('cutBtn').disabled = false; $('abortBtn').disabled = false; $('connectBtn').disabled = true;
   });
   client.on('message', (_t, payload) => { try { onCommand(JSON.parse(payload.toString())); } catch { log('sys', 'message illisible'); } });
-  client.on('close', () => { $('netDot').classList.remove('on'); if (S.mode !== 'offline') log('sys', 'connexion perdue'); S.mode = 'offline'; S.qr = null; });
+  client.on('close', () => {
+    $('netDot').classList.remove('on'); if (S.net) log('sys', 'connexion perdue'); S.net = false; S.qr = null;
+    if (!(S.matchId && (S.mode === 'playing' || S.mode === 'countdown'))) S.mode = 'offline'; // la partie continue en local
+  });
   client.on('error', (e) => log('sys', `erreur : ${e.message}`));
 }
 $('connectBtn').onclick = () => {
@@ -327,6 +346,8 @@ $('cutBtn').onclick = () => {
   log('sys', 'Wi-Fi coupé (Last Will attendu côté broker)');
   $('connectBtn').disabled = false; $('connectBtn').textContent = 'REBRANCHER'; $('cutBtn').disabled = true;
 };
+$('presetVps').onclick = () => { $('url').value = 'wss://pong.164-132-199-27.sslip.io/mqtt'; $('pass').focus(); };
+$('presetLocal').onclick = () => { $('url').value = 'ws://localhost:9001'; $('pass').value = ''; };
 $('abortBtn').onclick = () => { if (S.matchId) publish('events', { type: 'abort', matchId: S.matchId }); };
 
 // ───────────────────────── Boutons et clavier ─────────────────────────

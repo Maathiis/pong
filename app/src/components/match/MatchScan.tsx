@@ -1,7 +1,7 @@
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { useIsFocused } from 'expo-router';
-import { useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Linking, View } from 'react-native';
 import { Button, ErrorText, P, StatusDot, T } from '@/components/ui';
 import { useAuth } from '@/lib/auth';
 import { useLive } from '@/lib/live';
@@ -25,6 +25,11 @@ export function MatchScan() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastScan = useRef<{ data: string; at: number } | null>(null);
+
+  // demande l'accès à la caméra dès l'arrivée sur l'écran, sans attendre un appui sur le bouton
+  useEffect(() => {
+    if (focused && permission && !permission.granted && permission.canAskAgain) requestPermission();
+  }, [focused, permission, requestPermission]);
 
   async function onScan({ data }: BarcodeScanningResult) {
     // la caméra renvoie le même code plusieurs fois par seconde : on ne traite qu'une fois
@@ -57,6 +62,7 @@ export function MatchScan() {
             facing="back"
             barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
             onBarcodeScanned={onScan}
+            onMountError={(e) => setError(`Caméra indisponible : ${e.message}`)}
           />
         ) : busy ? (
           <ActivityIndicator color={colors.ink} size="large" />
@@ -65,13 +71,20 @@ export function MatchScan() {
         )}
       </Target>
 
+      {permission && !permission.granted && (
+        <View style={{ alignSelf: 'stretch' }}>
+          {/* accès refusé définitivement : seul le menu Réglages du téléphone permet de le rendre */}
+          <Button
+            label={permission.canAskAgain ? 'AUTORISER LA CAMÉRA' : 'OUVRIR LES RÉGLAGES'}
+            onPress={permission.canAskAgain ? requestPermission : () => Linking.openSettings()}
+          />
+        </View>
+      )}
+
       <View style={{ alignItems: 'center', gap: 10 }}>
         <P size={13} style={{ textAlign: 'center' }}>
           SCANNE LA BORNE
         </P>
-        <T size={24} style={{ textAlign: 'center' }}>
-          Vise le QR code affiché sur la matrice de la borne.
-        </T>
         <T size={20} color={colors.inkSoft} style={{ textAlign: 'center' }}>
           Le premier qui scanne joue à gauche.
         </T>
@@ -86,13 +99,6 @@ export function MatchScan() {
               ? `${onlineCount > 1 ? `${onlineCount} bornes` : 'Borne'} en ligne · prête`
               : 'Aucune borne en ligne'}
         </StatusDot>
-        {permission && !permission.granted && (
-          <Button
-            label={permission.canAskAgain ? 'AUTORISER LA CAMÉRA' : 'CAMÉRA REFUSÉE (RÉGLAGES)'}
-            onPress={requestPermission}
-            disabled={!permission.canAskAgain}
-          />
-        )}
       </View>
     </MatchScreen>
   );

@@ -10,8 +10,8 @@ interface AuthState {
   ready: boolean;
   token: string | null;
   user: User | null;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (pseudo: string, email: string, password: string, consent: boolean) => Promise<void>;
+  signIn: (pseudo: string, password: string) => Promise<void>;
+  signUp: (pseudo: string, password: string, consent: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   setUser: (u: User) => void;
 }
@@ -64,9 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ready,
       token,
       user,
-      signIn: async (email, password) => open(await api.login({ email, password })),
-      signUp: async (pseudo, email, password, consent) =>
-        open(await api.register({ pseudo, email, password, consent })),
+      signIn: async (pseudo, password) => open(await api.login({ pseudo, password })),
+      signUp: async (pseudo, password, consent) => open(await api.register({ pseudo, password, consent })),
       signOut,
       setUser,
     }),

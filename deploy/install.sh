@@ -12,6 +12,9 @@ step() { printf '\n\033[1;35m▶ %s\033[0m\n' "$*"; }
 
 [ "$(id -u)" = 0 ] || { echo "À lancer avec sudo." >&2; exit 1; }
 chmod +x deploy/*.sh
+# La copie depuis le Mac peut arriver en 600 : Mosquitto (utilisateur 1883 dans le conteneur) doit lire sa config.
+chmod 755 . deploy deploy/mosquitto
+chmod 644 deploy/mosquitto/mosquitto.conf deploy/mosquitto/acl deploy/pong.caddy docker-compose.prod.yml
 
 step "Secrets (.env)"
 if [ ! -f .env ]; then
@@ -55,6 +58,8 @@ for i in $(seq 1 30); do
   [ "$i" = 30 ] && { echo "Caddy n'a pas encore le certificat : voir docker logs edge-caddy-1" >&2; exit 1; }
   sleep 4
 done
+# Droits d'accès MQTT : copiés à côté des mots de passe, lisibles par Mosquitto seul.
+install -o 1883 -g 1883 -m 600 deploy/mosquitto/acl "$SECRETS/acl"
 chown -R 1883:1883 "$SECRETS"
 chmod 700 "$SECRETS"
 
@@ -67,6 +72,7 @@ fi
 
 step "Lancement (build de l'API)"
 $COMPOSE up -d --build
+$COMPOSE restart mqtt   # relit la config, les comptes et les droits à chaque déploiement
 
 step "Renouvellement automatique du certificat (cron)"
 ( crontab -l 2>/dev/null | grep -v sync-mqtt-cert || true
@@ -82,6 +88,13 @@ for i in $(seq 1 30); do
   [ "$i" = 30 ] && { echo "L'API ne répond pas : $COMPOSE logs api" >&2; exit 1; }
   sleep 3
 done
+sleep 3
+if [ -z "$($COMPOSE ps -q --status running mqtt)" ]; then
+  echo "Le broker MQTT ne démarre pas :" >&2
+  $COMPOSE logs --tail 15 mqtt >&2
+  exit 1
+fi
+echo "Broker MQTT en ligne : $DOMAIN:8883 (TLS)"
 $COMPOSE ps
 
 printf '\n\033[1;32mPong est en ligne.\033[0m\n'

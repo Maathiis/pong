@@ -77,6 +77,7 @@ dessinée à l'écran (QR, attente, compte à rebours, jeu, victoire) et boutons
 4. Joue au clavier (Z/W et S à gauche, ↑ et ↓ à droite), aux boutons, ou coche « Robot » pour jouer seul.
 
 « Couper le Wi-Fi » simule une panne de la borne (le broker publie son Last Will), « Reset » envoie un `abort`.
+Pendant une partie, la borne virtuelle continue en local et renvoie ses buts au rebranchement, comme l'ESP32.
 
 ## Choix techniques
 
@@ -87,7 +88,11 @@ dessinée à l'écran (QR, attente, compte à rebours, jeu, victoire) et boutons
   servent à rien). Marche sur iPhone et Android, dans Expo Go, sans matériel en plus.
 - **Le serveur fait foi pour le score** : la borne envoie les buts, le serveur compte, décide de la fin et
   calcule les stats (buts d'affilée, échange le plus long…).
-- Les parties ouvertes sont fermées si l'API redémarre ou si la borne passe hors ligne.
+- Les parties ouvertes sont fermées si l'API redémarre. Si la borne passe hors ligne, une salle d'attente est
+  fermée tout de suite ; une partie lancée attend 90 s que la borne revienne (elle joue en local et renvoie ses
+  buts, numérotés par `seq` pour ignorer les doublons), puis est notée interrompue.
+- **Compte = pseudo + mot de passe, sans e-mail** (minimisation des données, RGPD). On se connecte avec son
+  pseudo ; contrepartie assumée : pas de « mot de passe oublié ».
 
 ## Variables d'environnement (facultatives)
 
@@ -95,6 +100,7 @@ dessinée à l'écran (QR, attente, compte à rebours, jeu, victoire) et boutons
 | --- | --- | --- |
 | `JWT_SECRET` | `change-moi-en-local` | Signature des sessions |
 | `TARGET_SCORE` | `7` | Points pour gagner |
+| `OFFLINE_GRACE_S` | `90` | Secondes d'attente d'une borne hors ligne avant de noter la partie interrompue |
 
 À mettre dans un fichier `.env` à la racine (voir `.env.example`).
 

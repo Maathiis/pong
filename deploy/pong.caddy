@@ -2,5 +2,11 @@
 # Caddy obtient le certificat HTTPS tout seul et le renouvelle ; WebSocket (Socket.IO) passe sans réglage.
 pong.164-132-199-27.sslip.io {
 	import common
-	reverse_proxy pong-api:3000
+	# MQTT par WebSocket chiffré, pour la borne virtuelle du navigateur
+	handle /mqtt* {
+		reverse_proxy pong-mqtt:9001
+	}
+	handle {
+		reverse_proxy pong-api:3000
+	}
 }

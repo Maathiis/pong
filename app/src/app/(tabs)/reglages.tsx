@@ -9,6 +9,11 @@ import { colors, fonts } from '@/lib/theme';
 import type { Settings } from '@/lib/types';
 import { speedLabel } from '@/lib/useNow';
 
+/** Bornes du seuil de vitesse, identiques à la validation de l'API (users/settings.dto.ts). */
+const THRESHOLD_MIN = 1.5;
+const THRESHOLD_MAX = 3; // la balle de la borne plafonne à x3,2
+const THRESHOLD_STEP = 0.5;
+
 export default function Reglages() {
   const { user, setUser, signOut } = useAuth();
   const { refresh } = useLive();
@@ -59,6 +64,8 @@ export default function Reglages() {
 
   if (!user) return null;
   const s = user.settings;
+  // valeur par défaut de l'API si un ancien serveur ne renvoie pas encore le seuil
+  const threshold = s.speedAlertThreshold ?? 2.5;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.cream }}>
@@ -73,8 +80,8 @@ export default function Reglages() {
           />
           <View style={{ gap: 4, flex: 1 }}>
             <P size={14}>{user.pseudo}</P>
-            <T size={20} color={colors.inkSoft} numberOfLines={1}>
-              {user.email}
+            <T size={20} color={colors.inkSoft}>
+              Seuls ton pseudo et ton mot de passe sont enregistrés.
             </T>
           </View>
         </Card>
@@ -83,47 +90,45 @@ export default function Reglages() {
           <Line label="Borne hors ligne">
             <Toggle label="Borne hors ligne" value={s.alertOffline} onChange={(v) => toggle('alertOffline', v)} />
           </Line>
-          <Line label="Balle plus rapide que…">
-            <Toggle
-              label="Balle plus rapide que le seuil"
-              value={s.alertSpeedRecord}
-              onChange={(v) => toggle('alertSpeedRecord', v)}
-            />
+          <Line label="Balle rapide">
+            <Toggle label="Alerte balle rapide" value={s.alertSpeedRecord} onChange={(v) => toggle('alertSpeedRecord', v)} />
           </Line>
-          {s.alertSpeedRecord && (
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingHorizontal: 12,
-                paddingBottom: 10,
-                borderBottomWidth: 3,
-                borderColor: colors.ink,
-              }}
-            >
-              <T size={20} color={colors.inkSoft}>
-                Seuil d'alerte
-              </T>
+          <View
+            style={{
+              gap: 6,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderBottomWidth: 3,
+              borderColor: colors.ink,
+              opacity: s.alertSpeedRecord ? 1 : 0.45,
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <T size={22}>Seuil d'alerte</T>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <Step
                   label="Baisser le seuil"
                   sign="-"
-                  disabled={s.speedAlertThreshold <= 1.5}
-                  onPress={() => toggle('speedAlertThreshold', Math.round((s.speedAlertThreshold - 0.5) * 10) / 10)}
+                  disabled={!s.alertSpeedRecord || threshold <= THRESHOLD_MIN}
+                  onPress={() => toggle('speedAlertThreshold', Math.round((threshold - THRESHOLD_STEP) * 10) / 10)}
                 />
-                <P size={12} style={{ minWidth: 56, textAlign: 'center' }}>
-                  {speedLabel(s.speedAlertThreshold)}
+                <P size={12} style={{ minWidth: 56, textAlign: 'center' }} accessibilityLabel={`Seuil ${speedLabel(threshold)}`}>
+                  {speedLabel(threshold)}
                 </P>
                 <Step
                   label="Monter le seuil"
                   sign="+"
-                  disabled={s.speedAlertThreshold >= 5}
-                  onPress={() => toggle('speedAlertThreshold', Math.round((s.speedAlertThreshold + 0.5) * 10) / 10)}
+                  disabled={!s.alertSpeedRecord || threshold >= THRESHOLD_MAX}
+                  onPress={() => toggle('speedAlertThreshold', Math.round((threshold + THRESHOLD_STEP) * 10) / 10)}
                 />
               </View>
             </View>
-          )}
+            <T size={18} color={colors.inkSoft}>
+              {s.alertSpeedRecord
+                ? `Alerte quand la balle va ${threshold.toFixed(1).replace('.', ',')} fois plus vite qu'au service.`
+                : 'Active « Balle rapide » pour régler le seuil.'}
+            </T>
+          </View>
           <Line label="Balle de match" last>
             <Toggle label="Balle de match" value={s.alertMatchPoint} onChange={(v) => toggle('alertMatchPoint', v)} />
           </Line>

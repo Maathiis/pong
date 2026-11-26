@@ -122,6 +122,12 @@ docker compose -f docker-compose.prod.yml logs -f api   # attendre « API prête
 
 Vérification depuis n'importe où : `curl https://pong.164-132-199-27.sslip.io/api/health` → `{"ok":true}`.
 
+## Tester avec la borne virtuelle
+
+Ouvre `outils/borne-virtuelle/index.html`, clique « Serveur en ligne », entre le mot de passe de `borne-01`, puis
+« Brancher la borne ». Elle passe par `wss://pong.164-132-199-27.sslip.io/mqtt` (Caddy → Mosquitto, port 9001
+interne), avec les mêmes comptes et les mêmes droits qu'une vraie borne.
+
 ## Brancher l'appli
 
 Dans `app/.env` sur le Mac :
@@ -171,3 +177,10 @@ En cas de refus, Caddy essaie automatiquement un second fournisseur gratuit (Zer
 la borne devra alors connaître l'autorité de ZeroSSL au lieu de celle de Let's Encrypt (voir `docs/CONTRAT-BORNE.md`).
 Pour savoir qui a signé : `openssl s_client -connect pong.164-132-199-27.sslip.io:8883 </dev/null 2>/dev/null | grep issuer`.
 Si ça bloque durablement, la solution propre est un vrai nom de domaine.
+
+## Avant la démo
+
+On garde `sslip.io` pour la démo (décision du 26/11) : c'est un service DNS tiers gratuit, sans garantie.
+La veille, vérifier depuis le partage de connexion qui servira le jour J :
+`curl https://pong.164-132-199-27.sslip.io/api/health` doit répondre `{"ok":true}`, et la borne doit passer « en ligne ».
+Prévoir un second téléphone pour le partage de connexion, en secours.

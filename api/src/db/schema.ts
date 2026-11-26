@@ -14,7 +14,6 @@ import {
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   pseudo: varchar('pseudo', { length: 8 }).notNull().unique(),
-  email: varchar('email', { length: 254 }).notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   consentAt: timestamp('consent_at', { withTimezone: true }).notNull(),
   alertOffline: boolean('alert_offline').notNull().default(true),

@@ -13,7 +13,6 @@ export default function Login() {
   const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<Mode>('signup');
   const [pseudo, setPseudo] = useState('');
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,8 +24,8 @@ export default function Login() {
     if (signup && !consent) return setError('Coche la case pour accepter que ton pseudo soit visible.');
     setLoading(true);
     try {
-      if (signup) await signUp(pseudo, email, password, consent);
-      else await signIn(email, password);
+      if (signup) await signUp(pseudo, password, consent);
+      else await signIn(pseudo, password);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -87,24 +86,15 @@ export default function Login() {
             ))}
           </View>
 
-          {signup && (
-            <Field
-              label="PSEUDO (SUR LA BORNE)"
-              value={pseudo}
-              onChangeText={(v) => setPseudo(v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-              placeholder="NATHAN"
-              maxLength={8}
-              autoCapitalize="characters"
-            />
-          )}
+          {/* pseudo et mot de passe seulement : pas d'e-mail (minimisation RGPD) */}
           <Field
-            label="E-MAIL"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="toi@mail.fr"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
+            label={signup ? 'PSEUDO (SUR LA BORNE)' : 'PSEUDO'}
+            value={pseudo}
+            onChangeText={(v) => setPseudo(v.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+            placeholder="NATHAN"
+            maxLength={8}
+            autoCapitalize="characters"
+            autoComplete={signup ? 'username-new' : 'username'}
           />
           <Field
             label="MOT DE PASSE"

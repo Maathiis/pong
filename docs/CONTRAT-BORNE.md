@@ -5,11 +5,14 @@ Le jeu lui-même (balle, raquettes, matrice, boutons) reste entièrement côté 
 lui donner le QR code à afficher pour que les joueurs rejoignent la partie, lui dire quand la partie commence
 et s'arrête, avec les pseudos, et recevoir les buts avec leurs stats.
 
+> **Version 2 (26/11/2026), validée avec Nathan :** numéro `seq` dans chaque `goal`, et la partie continue
+> quand la borne perd le réseau (le serveur attend 90 s avant de la noter « interrompue »). Voir § 1 et § 3.
+
 **En résumé, la borne doit :**
 1. se connecter au broker et publier `online` (avec `offline` en Last Will) ;
 2. afficher sur la matrice 24 × 24 le QR code reçu dans la commande `qr` (et l'effacer quand le code est `null`) ;
 3. obéir aux commandes `start` et `stop` (et, si possible, afficher `lobby` et `score`) ;
-4. publier `goal` à chaque point.
+4. publier `goal` à chaque point, numéroté par `seq`, et renvoyer à la reconnexion les buts marqués hors ligne.
 
 ## Connexion
 
@@ -38,7 +41,17 @@ Toutes les topics commencent par `pong/bornes/<id>/`.
   Si la borne perd le Wi-Fi ou plante, le broker publie `offline` tout seul (après ~1,5 × le keepalive).
 
 Sans `online`, l'appli affiche « Borne hors ligne » et refuse de lancer une partie.
-Si la borne passe `offline` pendant une partie, la partie est notée « interrompue ».
+
+**Coupure réseau :**
+- Salle d'attente (avant `start`) : elle est fermée tout de suite.
+- Partie lancée : le serveur attend **90 s** après le `offline` que la borne revienne. Pendant ce temps, la borne
+  continue la partie en local, garde ses `goal` dans une file et les renvoie **à l'identique** (même `seq`) dès
+  qu'elle est reconnectée. Le serveur les compte comme s'ils venaient d'arriver.
+- Au-delà de 90 s, la partie est notée « interrompue ». La borne n'en reçoit pas de `stop` (elle est hors ligne) :
+  à sa reconnexion, elle reçoit un `qr` avec un code, ce qui veut dire « plus de partie en cours, retour à l'attente ».
+  Les buts qu'elle renvoie alors sont ignorés.
+
+Repère : le broker publie `offline` environ 1,5 × le keepalive après la coupure (22 s avec un keepalive de 15 s).
 
 ## 2. Commandes : `pong/bornes/<id>/commands` (serveur → borne)
 
@@ -56,6 +69,8 @@ La borne s'abonne à cette topic (QoS 1). Messages en JSON, toujours avec un cha
 - **Le code change** à chaque joueur qui rejoint, après chaque partie et toutes les 5 minutes : il faut
   toujours afficher le dernier reçu. Un ancien code est refusé (une photo du QR ne sert plus à rien).
 - `code: null` : la salle est complète ou la partie a commencé → effacer le QR (afficher les pseudos, le jeu…).
+- Un `code` reçu **pendant une partie** veut dire que le serveur l'a arrêtée (coupure de plus de 90 s, voir § 1) :
+  abandonner la partie locale, vider la file de buts et afficher le QR.
 - Le code fait toujours 13 caractères (`PONG:` + 8 lettres/chiffres), en majuscules : il tient dans un
   **QR version 1 (21 × 21 modules)**, niveau de correction Q, avec 1 pixel de marge dans la matrice 24 × 24.
 - **Fond allumé, modules sombres éteints** : les téléphones lisent des modules sombres sur fond clair.
@@ -95,12 +110,13 @@ Facultatif à gérer : la borne peut afficher son propre compteur. `matchPoint` 
 { "type": "stop", "matchId": "6f1c…", "reason": "finished", "winner": "left" }
 ```
 
-- `reason` : `finished` (un joueur a atteint `targetScore`), `interrupted` (les deux joueurs ont demandé la fin dans l'appli) ou `cancelled` (salle fermée sans partie : personne n'a lancé dans les 2 minutes, ou tout le monde est parti).
+- `reason` : `finished` (un joueur a atteint `targetScore`), `interrupted` (les deux joueurs ont demandé la fin dans l'appli) ou `cancelled` (salle fermée sans partie : personne n'a lancé dans les 2 minutes, ou tout le monde est parti). Sur `cancelled`, la borne revient à l'écran d'attente.
 - Juste après `stop`, le serveur envoie un nouveau `qr` pour la partie suivante.
 - `winner` : `left`, `right` ou `null`.
 - À réception, la borne arrête la balle, peut afficher le vainqueur, puis revient en attente.
 
-**C'est le serveur qui décide de la fin** : la borne n'a pas besoin de compter jusqu'à 7, elle attend `stop`.
+**C'est le serveur qui décide de la fin** : la borne peut compter en local pour son affichage, mais elle attend `stop`.
+Si le réseau coupe, elle continue de jouer et le serveur décide de la fin quand les buts arrivent (voir § 1).
 
 ## 3. Événements : `pong/bornes/<id>/events` (borne → serveur)
 
@@ -109,15 +125,20 @@ QoS 1, JSON.
 ### `goal` : un point est marqué
 
 ```json
-{ "type": "goal", "matchId": "6f1c…", "side": "left", "rallyHits": 14, "bounces": 9, "maxSpeed": 2.8 }
+{ "type": "goal", "matchId": "6f1c…", "seq": 3, "side": "left", "rallyHits": 14, "bounces": 9, "maxSpeed": 2.8 }
 ```
 
 | Champ | Sens |
 | --- | --- |
+| `seq` | numéro du but dans la partie : 1 au premier but après `start`, puis +1 à chaque but |
 | `side` | qui **marque** le point : `left` ou `right` |
 | `rallyHits` | nombre de renvois de raquette pendant l'échange qui vient de finir |
 | `bounces` | nombre de rebonds sur les murs (haut/bas) pendant cet échange |
 | `maxSpeed` | vitesse max de la balle pendant l'échange, en multiple de la vitesse de départ (1.0 = départ) |
+
+`seq` sert à ignorer les doublons : en QoS 1, un message peut arriver deux fois après une coupure. Le serveur
+ignore un `goal` dont le `seq` est inférieur ou égal au dernier reçu pour ce `matchId`. Un but renvoyé garde donc
+**le même `seq`**. Sans `seq`, chaque `goal` compte (ancien comportement, toujours accepté).
 
 `rallyHits`, `bounces` et `maxSpeed` sont facultatifs (0 par défaut), mais ce sont eux qui remplissent
 les stats de l'appli (« échange le + long », « rebonds total », « vitesse balle max »).
@@ -144,7 +165,7 @@ Joueur 2 scanne le QR      →  serveur publie  lobby {left:"NATHAN", right:"MAT
                            →  serveur publie  qr {code:null}                      (effacer le QR)
 « Lancer » dans l'appli    →  serveur publie  start {matchId, countdown:5, left, right, targetScore:7}
 … la borne joue …
-But à gauche               ←  borne publie    goal {matchId, side:"left", rallyHits, bounces, maxSpeed}
+But à gauche               ←  borne publie    goal {matchId, seq:1, side:"left", rallyHits, bounces, maxSpeed}
                            →  serveur publie  score {matchId, left:1, right:0, matchPoint:null}
 … jusqu'à 7 …
                            →  serveur publie  stop {matchId, reason:"finished", winner:"left"}
@@ -166,7 +187,7 @@ mosquitto_pub -h localhost -t pong/bornes/borne-01/status -m online -r -q 1
 
 # une fois la partie lancée depuis l'appli, récupérer le matchId dans le message « start » affiché par mosquitto_sub, puis :
 mosquitto_pub -h localhost -t pong/bornes/borne-01/events -q 1 \
-  -m '{"type":"goal","matchId":"<matchId>","side":"left","rallyHits":6,"bounces":3,"maxSpeed":1.8}'
+  -m '{"type":"goal","matchId":"<matchId>","seq":1,"side":"left","rallyHits":6,"bounces":3,"maxSpeed":1.8}'
 ```
 
 Le score bouge dans l'appli des deux joueurs à chaque message.

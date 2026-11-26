@@ -1,13 +1,19 @@
 import type { ReactNode } from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { Card, Header, P } from '@/components/ui';
-import { block, colors } from '@/lib/theme';
+import { colors } from '@/lib/theme';
 
 export function MatchScreen({ children, header = 'MATCH' }: { children: ReactNode; header?: string }) {
   return (
     <View style={{ flex: 1, backgroundColor: colors.cream }}>
       <Header title={header} />
-      <View style={{ flex: 1, padding: 20, paddingTop: 18, gap: 18, alignItems: 'center' }}>{children}</View>
+      {/* défilement pour les petits écrans : les boutons du bas (quitter, autoriser la caméra) restent accessibles */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ flexGrow: 1, padding: 20, paddingTop: 18, gap: 18, alignItems: 'center' }}
+      >
+        {children}
+      </ScrollView>
     </View>
   );
 }
@@ -68,22 +74,22 @@ export function Target({ children, size = 250 }: { children: ReactNode; size?: n
     <View style={{ width: size, height: size }}>
       {ring(0, 0.45)}
       {ring(30, 0.75)}
+      {/* ombre dure dessinée par un bloc à part : pas de boxShadow sur le parent de la caméra (aperçu noir sur Android) */}
+      <View style={{ position: 'absolute', top: 65, left: 65, right: 55, bottom: 55, backgroundColor: colors.ink }} />
       <View
-        style={[
-          block(5),
-          {
-            position: 'absolute',
-            top: 60,
-            left: 60,
-            right: 60,
-            bottom: 60,
-            backgroundColor: colors.apricot,
-            borderWidth: 6,
-            overflow: 'hidden',
-            alignItems: 'center',
-            justifyContent: 'center',
-          },
-        ]}
+        style={{
+          position: 'absolute',
+          top: 60,
+          left: 60,
+          right: 60,
+          bottom: 60,
+          backgroundColor: colors.apricot,
+          borderWidth: 6,
+          borderColor: colors.ink,
+          overflow: 'hidden',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
       >
         {children}
       </View>

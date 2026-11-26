@@ -83,6 +83,7 @@ PubSubClient mqtt(wifi);
 // ─── État de la partie ──────────────────────────────────────────────────────
 String matchId = "";     // vide = pas de partie en cours
 bool playing = false;
+int goalSeq = 0;         // numéro du dernier but envoyé (« seq » du contrat), remis à 0 à chaque « start »
 
 // Stats de l'échange en cours, remises à zéro après chaque but.
 int rallyHits = 0;       // renvois de raquette
@@ -97,8 +98,12 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
 
   if (strcmp(type, "qr") == 0) {
     // code = texte à afficher en QR ; null = plus de place, effacer le QR (afficher les pseudos, « PRÊTS ! »…)
-    if (doc["code"].is<const char*>()) drawQr(doc["code"]);
-    else Serial.println("QR masqué");
+    if (doc["code"].is<const char*>()) {
+      // Un code pendant une partie : le serveur l'a arrêtée (coupure trop longue). Retour à l'attente.
+      playing = false;
+      matchId = "";
+      drawQr(doc["code"]);
+    } else Serial.println("QR masqué");
 
   } else if (strcmp(type, "lobby") == 0) {
     // Joueurs dans la salle. À FAIRE (facultatif) : afficher les pseudos à côté ou à la place du QR,
@@ -117,6 +122,7 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
     Serial.printf("Start %s : %s vs %s dans %ds\n", matchId.c_str(), left, right, countdown);
     // À FAIRE : afficher les pseudos, le compte à rebours, puis lancer la balle
     playing = true;
+    goalSeq = 0;
     rallyHits = 0; bounces = 0; maxSpeed = 1.0;
 
   } else if (strcmp(type, "score") == 0) {
@@ -139,12 +145,15 @@ void sendGoal(const char* side) {
   JsonDocument doc;
   doc["type"] = "goal";
   doc["matchId"] = matchId;
+  doc["seq"] = ++goalSeq;  // un but renvoyé après une coupure doit garder le même seq
   doc["side"] = side;
   doc["rallyHits"] = rallyHits;
   doc["bounces"] = bounces;
   doc["maxSpeed"] = maxSpeed;
   char buf[256];
   size_t n = serializeJson(doc, buf);
+  // Exemple simplifié : hors ligne, le but est perdu. Le firmware final le garde dans une file
+  // et le renvoie tel quel à la reconnexion (voir « Coupure réseau » dans docs/CONTRAT-BORNE.md).
   mqtt.publish(topicEvents.c_str(), (const uint8_t*)buf, n, false);
   rallyHits = 0; bounces = 0; maxSpeed = 1.0;
   // Pas besoin de compter jusqu'à 7 : le serveur envoie « stop » quand la partie est gagnée.
@@ -190,9 +199,8 @@ void connectMqtt() {
       Serial.println("OK");
       mqtt.publish(topicStatus.c_str(), "online", true);  // retained
       mqtt.subscribe(topicCommands.c_str(), 1);
-      // Une partie éventuellement en cours avant la coupure a été interrompue côté serveur.
-      playing = false;
-      matchId = "";
+      // Une partie en cours avant la coupure continue (le serveur attend 90 s) : on garde matchId.
+      // Si le serveur l'a arrêtée entre-temps, il enverra un « qr » avec un code : retour à l'attente.
     } else {
       Serial.printf("échec (%d), nouvel essai dans 2 s\n", mqtt.state());
       delay(2000);

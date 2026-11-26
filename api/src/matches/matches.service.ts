@@ -28,6 +28,12 @@ import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 const ACTIVE: MatchStatus[] = ['WAITING', 'READY', 'COUNTDOWN', 'LIVE'];
 const WAITING_MS = 2 * 60_000; // une salle sans activité se ferme au bout de 2 min
 const COUNTDOWN_S = 5;
+/**
+ * Borne hors ligne pendant une partie : elle continue en local et renvoie ses buts à la reconnexion.
+ * Le broker annonce « offline » ~22 s après la coupure (1,5 × keepalive) ; on attend encore 90 s
+ * avant de noter la partie « interrompue » (Wi-Fi 3-5 s + TLS 1-3 s, plus un partage de connexion qui redémarre).
+ */
+const OFFLINE_GRACE_MS = Number(process.env.OFFLINE_GRACE_S ?? 90) * 1000;
 const TARGET_SCORE = Number(process.env.TARGET_SCORE ?? 7);
 
 const num = (v: unknown) =>
@@ -63,6 +69,11 @@ export class MatchesService implements OnModuleInit {
   /** QR code affiché par chaque borne (borne → code) et l'inverse (code → borne). */
   private readonly codeOfBorne = new Map<string, string>();
   private readonly borneOfCode = new Map<string, string>();
+  /**
+   * Dernier numéro de but (« seq ») reçu pour chaque partie en cours : un goal renvoyé après une coupure
+   * (QoS 1) porte le même seq et doit être ignoré. En mémoire suffit : un redémarrage de l'API interrompt les parties.
+   */
+  private readonly lastGoalSeq = new Map<string, number>();
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -76,7 +87,7 @@ export class MatchesService implements OnModuleInit {
     await this.recoverAfterRestart();
     this.mqtt.onStatus((borneId, online) =>
       this.lock(borneId, () =>
-        online ? this.syncCode(borneId) : this.onBorneOffline(borneId),
+        online ? this.onBorneOnline(borneId) : this.onBorneOffline(borneId),
       ),
     );
     this.mqtt.onEvent((borneId, event) =>
@@ -383,6 +394,16 @@ export class MatchesService implements OnModuleInit {
       );
       return;
     }
+    // « seq » facultatif (1, 2, 3… par partie) : sans lui, chaque goal compte, comme avant.
+    if (typeof event.seq === 'number' && Number.isInteger(event.seq)) {
+      if (event.seq <= (this.lastGoalSeq.get(match.id) ?? 0)) {
+        this.logger.warn(
+          `But en double ignoré (seq ${event.seq}) : ${JSON.stringify(event)}`,
+        );
+        return;
+      }
+      this.lastGoalSeq.set(match.id, event.seq);
+    }
     const rallyHits = Math.round(num(event.rallyHits));
     const bounces = Math.round(num(event.bounces));
     const maxSpeed = num(event.maxSpeed);
@@ -471,6 +492,32 @@ export class MatchesService implements OnModuleInit {
     return this.publish(updated);
   }
 
+  /** La borne revient : on annule l'attente d'une partie en cours, et on lui renvoie l'état du QR code. */
+  private async onBorneOnline(borneId: string) {
+    if (this.timers.has(`offline:${borneId}`)) {
+      this.clearTimer(`offline:${borneId}`);
+      const [match] = await this.db
+        .select()
+        .from(matches)
+        .where(
+          and(eq(matches.borneId, borneId), inArray(matches.status, ACTIVE)),
+        );
+      if (match) {
+        await this.log(
+          match.id,
+          'borne_online',
+          'Borne reconnectée, la partie continue',
+        );
+        await this.publish(match);
+      }
+    }
+    return this.syncCode(borneId);
+  }
+
+  /**
+   * Borne hors ligne : une salle d'attente est fermée tout de suite ; une partie lancée attend
+   * OFFLINE_GRACE_MS que la borne revienne (elle joue en local et renvoie ses buts), puis est notée « interrompue ».
+   */
   private async onBorneOffline(borneId: string) {
     this.dropCode(borneId);
     const active = await this.db
@@ -480,12 +527,31 @@ export class MatchesService implements OnModuleInit {
         and(eq(matches.borneId, borneId), inArray(matches.status, ACTIVE)),
       );
     for (const match of active) {
-      await this.finish(
-        match,
-        match.status === 'LIVE' ? 'INTERRUPTED' : 'CANCELLED',
-        null,
-        'Borne hors ligne',
-        false,
+      if (match.status === 'WAITING' || match.status === 'READY') {
+        await this.finish(match, 'CANCELLED', null, 'Borne hors ligne', false);
+        continue;
+      }
+      await this.log(
+        match.id,
+        'borne_offline',
+        'Borne hors ligne, attente de reconnexion',
+      );
+      await this.publish(match);
+      this.schedule(`offline:${borneId}`, OFFLINE_GRACE_MS, () =>
+        this.lock(borneId, async () => {
+          const [fresh] = await this.db
+            .select()
+            .from(matches)
+            .where(eq(matches.id, match.id));
+          if (fresh?.status !== 'LIVE' && fresh?.status !== 'COUNTDOWN') return;
+          return this.finish(
+            fresh,
+            'INTERRUPTED',
+            null,
+            'Borne hors ligne trop longtemps',
+            false,
+          );
+        }),
       );
     }
   }
@@ -532,6 +598,8 @@ export class MatchesService implements OnModuleInit {
     notifyBorne = true,
   ) {
     this.clearTimer(match.id);
+    this.clearTimer(`offline:${match.borneId}`);
+    this.lastGoalSeq.delete(match.id);
     const [updated] = await this.db
       .update(matches)
       .set({

@@ -39,9 +39,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
-  register: (b: { pseudo: string; email: string; password: string; consent: boolean }) =>
+  register: (b: { pseudo: string; password: string; consent: boolean }) =>
     request<Session>('POST', '/auth/register', b),
-  login: (b: { email: string; password: string }) => request<Session>('POST', '/auth/login', b),
+  login: (b: { pseudo: string; password: string }) => request<Session>('POST', '/auth/login', b),
   me: () => request<User>('GET', '/me'),
   stats: () => request<Stats>('GET', '/me/stats'),
   updateSettings: (s: Partial<Settings>) => request<User>('PATCH', '/me/settings', s),

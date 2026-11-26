@@ -15,7 +15,6 @@ export interface Settings {
 export interface User {
   id: string;
   pseudo: string;
-  email: string;
   settings: Settings;
 }
 
