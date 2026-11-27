@@ -175,7 +175,9 @@ const S = {
   net: false,                 // connectée au broker ; une partie continue en local pendant une coupure
   seq: 0, pending: [],        // numéro du dernier but, et buts à renvoyer à la reconnexion (contrat : « seq »)
   bot: null,                  // raquette jouée par la borne (« bot » dans start) : 'right' contre le bot, sinon null
+  remote: null, remoteDir: 0, remoteAt: 0, // raquette jouée avec la manette du téléphone (« remote » dans start, commandes « pad »)
 };
+const PAD_TIMEOUT_MS = 400; // sans commande « pad » depuis 400 ms, la raquette du téléphone s'arrête (contrat 2.2)
 const G = { // le jeu, en « cases » de la matrice
   padH: 5, padSpeed: 16, v0: 9, ball: { x: 12, y: 12, vx: 0, vy: 0 }, pads: { left: 9.5, right: 9.5 },
   held: { left: 0, right: 0 }, rallyHits: 0, bounces: 0, maxSpeed: 1, serveAt: 0, serveDir: 1,
@@ -202,7 +204,7 @@ function render(now) {
       break;
     }
     case 'playing': drawGame();
-      setState(S.net ? `En jeu${S.bot ? ' contre le bot' : ''} · premier à ${S.targetScore}` : `En jeu hors ligne · ${S.pending.length} but(s) à renvoyer`); break;
+      setState(S.net ? `En jeu${S.bot ? ' contre le bot' : S.remote ? ' · joueur 2 au téléphone' : ''} · premier à ${S.targetScore}` : `En jeu hors ligne · ${S.pending.length} but(s) à renvoyer`); break;
     case 'over': {
       clear(); const c = S.winner === 'left' ? COLORS.left : S.winner === 'right' ? COLORS.right : '#5a4a7a';
       const blink = Math.floor(now / 300) % 2 === 0;
@@ -239,7 +241,8 @@ function drawGame() {
 function step(dt, now) {
   for (const side of ['left', 'right']) {
     let dir = G.held[side];
-    if (isBot(side)) {
+    if (S.remote === side) dir = performance.now() - S.remoteAt < PAD_TIMEOUT_MS ? S.remoteDir : 0; // manette du téléphone
+    else if (isBot(side)) {
       const target = G.ball.y - G.padH / 2 + 0.5; dir = Math.abs(target - G.pads[side]) < 0.4 ? 0 : Math.sign(target - G.pads[side]);
     }
     const bot = isBot(side);
@@ -291,13 +294,13 @@ function log(dir, msg) {
   line.className = dir; line.textContent = `${new Date().toLocaleTimeString('fr-FR')} ${dir === 'out' ? '→' : dir === 'in' ? '←' : '·'} ${msg}`;
   el.prepend(line);
 }
-function publish(kind, obj, opts = { qos: 1 }) {
+function publish(kind, obj, opts = { qos: 1 }, quiet = false) {
   if (!client?.connected) return;
   const payload = typeof obj === 'string' ? obj : JSON.stringify(obj);
-  client.publish(topic(kind), payload, opts); log('out', `${kind} ${payload}`);
+  client.publish(topic(kind), payload, opts); if (!quiet) log('out', `${kind} ${payload}`);
 }
 function onCommand(msg) {
-  log('in', JSON.stringify(msg));
+  if (msg.type !== 'pad') log('in', JSON.stringify(msg)); // ~7 commandes par seconde en appui : pas dans le journal
   switch (msg.type) {
     case 'qr': S.qr = msg.code;
       // un code alors qu'on joue : le serveur a arrêté la partie pendant une coupure trop longue
@@ -305,11 +308,18 @@ function onCommand(msg) {
       if (S.mode !== 'playing' && S.mode !== 'countdown' && S.mode !== 'over') S.mode = msg.code ? 'idle' : (S.ready ? 'ready' : 'idle'); break;
     case 'lobby': S.left = msg.left; S.right = msg.right; S.ready = !!msg.ready; S.score = { left: 0, right: 0 };
       if (S.mode === 'idle' || S.mode === 'ready') S.mode = S.ready ? 'ready' : 'idle'; break;
-    case 'start': S.matchId = msg.matchId; S.seq = 0; S.pending = []; S.bot = msg.bot ?? null; S.left = msg.left; S.right = msg.right; S.targetScore = msg.targetScore ?? 7;
+    case 'start': S.matchId = msg.matchId; S.seq = 0; S.pending = []; S.bot = msg.bot ?? null;
+      S.remote = msg.remote ?? null; S.remoteDir = 0; S.remoteAt = 0; S.left = msg.left; S.right = msg.right; S.targetScore = msg.targetScore ?? 7;
       S.score = { left: 0, right: 0 }; S.countdownEnd = performance.now() + (msg.countdown ?? 5) * 1000; S.mode = 'countdown';
       G.pads = { left: 9.5, right: 9.5 }; break;
     case 'score': S.score = { left: msg.left, right: msg.right }; break;
-    case 'stop': S.winner = msg.winner; S.mode = 'over'; S.overUntil = performance.now() + 3000; S.matchId = null; S.ready = false; S.bot = null;
+    case 'pad': // manette du téléphone : appliquée tout de suite, puis accusé de réception (mesure de latence)
+      if (msg.matchId === S.matchId && msg.side === S.remote) {
+        S.remoteDir = Math.max(-1, Math.min(1, Math.round(msg.dir) || 0)); S.remoteAt = performance.now();
+        publish('events', { type: 'pad_ack', matchId: S.matchId, n: msg.n }, { qos: 0 }, true);
+      }
+      break;
+    case 'stop': S.winner = msg.winner; S.mode = 'over'; S.overUntil = performance.now() + 3000; S.matchId = null; S.ready = false; S.bot = null; S.remote = null;
       break; // les pseudos restent affichés jusqu'à la prochaine salle (« lobby »)
   }
 }

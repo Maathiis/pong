@@ -1,6 +1,6 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, type Href } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Cloud, ErrorText, P, Row, ShadowTitle, StatTile, StatusDot, T } from '@/components/ui';
 import { api } from '@/lib/api';
@@ -113,9 +113,13 @@ export default function Home() {
             </T>
           )}
           {stats?.recent.map((m) => (
-            <View
+            <Pressable
               key={m.id}
-              style={{
+              accessibilityRole="button"
+              accessibilityLabel={`Voir le détail du match ${m.me} ${m.scoreMe}-${m.scoreOpponent} ${m.opponent}`}
+              onPress={() => router.push(`/partie/${m.id}` as Href)}
+              style={({ pressed }) => ({
+                opacity: pressed ? 0.7 : 1,
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 10,
@@ -124,7 +128,7 @@ export default function Home() {
                 borderColor: colors.ink,
                 paddingVertical: 6,
                 paddingHorizontal: 10,
-              }}
+              })}
             >
               <View
                 style={{
@@ -147,7 +151,8 @@ export default function Home() {
                 {m.opponent}
               </T>
               <T size={18}>{m.status === 'INTERRUPTED' ? 'interrompu' : relativeDay(m.endedAt)}</T>
-            </View>
+              <P size={10}>&gt;</P>
+            </Pressable>
           ))}
         </View>
 

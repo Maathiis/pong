@@ -10,6 +10,10 @@ et s'arrête, avec les pseudos, et recevoir les buts avec leurs stats.
 >
 > **Version 2.1 (27/11/2026) :** partie contre le bot. Champ `bot` dans `lobby` et `start` : quand il vaut
 > `"right"`, c'est la borne qui joue la raquette droite (voir « Partie contre le bot » au § 2).
+>
+> **Version 2.2 (27/11/2026) :** manette du téléphone. La borne n'a de boutons que pour le joueur 1 : un joueur 2
+> humain joue avec son téléphone. Champ `remote` dans `start`, commande `pad`, événement facultatif `pad_ack`
+> (voir « Manette du téléphone » au § 2). La raquette droite est donc soit le bot, soit le téléphone.
 
 **En résumé, la borne doit :**
 1. se connecter au broker et publier `online` (avec `offline` en Last Will) ;
@@ -92,13 +96,14 @@ du QR, puis « PRÊTS ! ».
 ### `start` : la partie commence
 
 ```json
-{ "type": "start", "matchId": "6f1c…", "countdown": 5, "targetScore": 7, "left": "NATHAN", "right": "MATHIS", "bot": null }
+{ "type": "start", "matchId": "6f1c…", "countdown": 5, "targetScore": 7, "left": "NATHAN", "right": "MATHIS", "bot": null, "remote": "right" }
 ```
 
 - `countdown` : secondes de compte à rebours à afficher avant d'engager la balle.
 - `left` / `right` : pseudos (2 à 8 caractères, majuscules et chiffres, donc affichables sur la matrice).
 - **La borne garde `matchId`** : elle doit le renvoyer dans chaque événement.
 - `bot` : `null` pour une partie entre deux joueurs, `"right"` pour une partie contre le bot (voir ci-dessous).
+- `remote` : `"right"` quand le joueur 2 joue avec son téléphone (toute partie à deux joueurs), `null` contre le bot.
 
 ### Partie contre le bot
 
@@ -114,6 +119,34 @@ pilote elle-même la raquette droite** (même IA que la démo `demo_pong`, batta
 ignore les boutons de droite. Le reste ne change pas : elle publie un `goal` à chaque point (`side: "right"` quand
 le bot marque), le serveur envoie `score` et `stop`. Le pseudo `BOT` est réservé : aucun joueur ne peut le prendre.
 Les parties contre le bot ne comptent pas dans le tableau des scores public.
+
+### Manette du téléphone : `pad`
+
+Quand `start` contient `"remote": "right"`, la raquette droite obéit aux commandes `pad` (les boutons de droite,
+s'il y en a, sont ignorés). Envoyées en **QoS 0** (une commande en retard ne sert à rien) :
+
+```json
+{ "type": "pad", "matchId": "6f1c…", "side": "right", "dir": -1, "n": 42 }
+```
+
+| Champ | Sens |
+| --- | --- |
+| `dir` | `-1` = monter, `1` = descendre, `0` = s'arrêter |
+| `n` | numéro de la commande (croissant), à renvoyer dans `pad_ack` |
+
+- La borne applique `dir` tout de suite, puis déplace la raquette à sa vitesse normale **tant que la commande dure**,
+  exactement comme un bouton tenu.
+- Tant que le joueur tient un bouton, le téléphone renvoie la même commande toutes les 150 ms. **Sans commande
+  depuis 400 ms, la borne arrête la raquette** (téléphone qui perd le réseau, appli fermée).
+- Ignorer un `pad` dont le `matchId` n'est pas la partie en cours.
+
+Facultatif, pour mesurer la latence dans l'appli : à chaque `pad`, la borne publie sur `events`, en QoS 0,
+
+```json
+{ "type": "pad_ack", "matchId": "6f1c…", "n": 42 }
+```
+
+L'appli affiche alors l'aller-retour complet téléphone → serveur → borne → téléphone. Sans `pad_ack`, elle affiche « — ».
 
 ### `score` : score officiel après chaque but
 

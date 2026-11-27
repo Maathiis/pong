@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View } from 'react-native';
 import { Button, ErrorText, P, ShadowTitle, T } from '@/components/ui';
+import { useAuth } from '@/lib/auth';
 import { useLive } from '@/lib/live';
 import { block, colors } from '@/lib/theme';
 import type { Match } from '@/lib/types';
@@ -14,6 +15,9 @@ import { MatchScreen } from './shared';
  */
 export function MatchVersus({ match }: { match: Match }) {
   const { start, leave } = useLive();
+  const { user } = useAuth();
+  // joueur 2 humain : il joue avec la manette de son téléphone (la borne n'a de boutons que pour le joueur 1)
+  const iAmRemote = match.remote !== null && (match.remote === 'left' ? match.left?.id : match.right?.id) === user?.id;
   const ready = match.status === 'READY';
   const [busy, setBusy] = useState<'start' | 'leave' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +82,11 @@ export function MatchVersus({ match }: { match: Match }) {
           <T size={21} color={colors.inkSoft} style={{ textAlign: 'center' }}>
             {match.vsBot
               ? 'Mets-toi devant la raquette de gauche : la borne joue celle de droite.'
-              : 'Mettez-vous chacun devant votre raquette, puis lancez la partie.'}
+              : iAmRemote
+                ? "Tu joues à droite avec ton téléphone : au lancement, l'écran passe en manette. Tiens-le à l'horizontale, pouce gauche sur HAUT, pouce droit sur BAS."
+                : match.remote
+                  ? 'Le joueur 1 prend les boutons de la borne, le joueur 2 joue avec son téléphone.'
+                  : 'Mettez-vous chacun devant votre raquette, puis lancez la partie.'}
           </T>
           <ErrorText style={{ textAlign: 'center' }}>{error}</ErrorText>
           <Button
@@ -111,6 +119,7 @@ export function MatchVersus({ match }: { match: Match }) {
             </P>
           </View>
           <T size={21} color={colors.inkSoft} style={{ marginTop: 'auto', textAlign: 'center' }}>
+            {/* le joueur 2 voit la manette (MatchManette) dès le compte à rebours */}
             Regarde la matrice : utilise les 2 boutons de ta raquette (haut / bas).
             {match.vsBot ? ' Le bot joue à droite.' : ''}
           </T>

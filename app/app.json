@@ -4,12 +4,13 @@
     "slug": "pong-connecte",
     "scheme": "pong",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "backgroundColor": "#FFF1C9",
     "ios": {
       "supportsTablet": false,
+      "requireFullScreen": true,
       "bundleIdentifier": "fr.mds.pongconnecte",
       "infoPlist": {
         "NSAppTransportSecurity": {

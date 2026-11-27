@@ -85,6 +85,10 @@ String matchId = "";     // vide = pas de partie en cours
 bool playing = false;
 int goalSeq = 0;         // numéro du dernier but envoyé (« seq » du contrat), remis à 0 à chaque « start »
 bool botRight = false;   // partie contre le bot : la borne joue elle-même la raquette droite
+bool remoteRight = false;         // joueur 2 au téléphone : la raquette droite obéit aux commandes « pad »
+int remoteDir = 0;                // -1 monter, 1 descendre, 0 arrêt
+unsigned long remoteAt = 0;       // millis() du dernier « pad » : sans commande depuis 400 ms, la raquette s'arrête
+const unsigned long PAD_TIMEOUT_MS = 400;
 
 // Stats de l'échange en cours, remises à zéro après chaque but.
 int rallyHits = 0;       // renvois de raquette
@@ -103,6 +107,7 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
       // Un code pendant une partie : le serveur l'a arrêtée (coupure trop longue). Retour à l'attente.
       playing = false;
       botRight = false;
+      remoteRight = false;
       matchId = "";
       drawQr(doc["code"]);
     } else Serial.println("QR masqué");
@@ -127,7 +132,26 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
     goalSeq = 0;
     // « bot » = "right" : partie contre le bot. À FAIRE : piloter la raquette droite par l'IA, ignorer ses boutons.
     botRight = strcmp(doc["bot"] | "", "right") == 0;
+    // « remote » = "right" : le joueur 2 joue avec son téléphone (commandes « pad »).
+    remoteRight = strcmp(doc["remote"] | "", "right") == 0;
+    remoteDir = 0;
     rallyHits = 0; bounces = 0; maxSpeed = 1.0;
+
+  } else if (strcmp(type, "pad") == 0) {
+    // Manette du téléphone. À FAIRE dans la boucle du jeu : si remoteRight, direction de la raquette droite =
+    // (millis() - remoteAt < PAD_TIMEOUT_MS) ? remoteDir : 0.
+    if (remoteRight && matchId == (doc["matchId"] | "")) {
+      remoteDir = constrain((int)(doc["dir"] | 0), -1, 1);
+      remoteAt = millis();
+      // Facultatif : accusé de réception, pour que l'appli affiche la latence.
+      JsonDocument ack;
+      ack["type"] = "pad_ack";
+      ack["matchId"] = matchId;
+      ack["n"] = doc["n"] | 0;
+      char buf[96];
+      size_t len = serializeJson(ack, buf);
+      mqtt.publish(topicEvents.c_str(), (const uint8_t*)buf, len, false);
+    }
 
   } else if (strcmp(type, "score") == 0) {
     // À FAIRE (facultatif) : afficher doc["left"] et doc["right"] (score officiel)
@@ -139,6 +163,7 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
     // À FAIRE : arrêter la balle, afficher le vainqueur, revenir à l'écran d'attente
     playing = false;
     botRight = false;
+    remoteRight = false;
     matchId = "";
   }
 }

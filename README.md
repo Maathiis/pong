@@ -66,6 +66,14 @@ Elles s'affichent en bannière dans l'appli, avec vibration, et un son si « Son
 
 Les deux joueurs peuvent aussi arrêter la partie (« Fin du match » des deux côtés) : elle est notée interrompue.
 
+**Joueur 2 au téléphone :** la borne n'a de boutons que pour le joueur 1. Dans une partie à deux, l'appli du
+joueur 2 devient une manette dès le compte à rebours : écran paysage plein écran, pouce gauche sur HAUT, pouce droit
+sur BAS (appui maintenu), score et latence vers la borne au centre, stats et « Fin du match » dans un panneau.
+Onglets masqués, écran qui reste allumé, alertes en bandeau transparent au toucher et sans vibration longue,
+raquette lâchée si l'appli passe en arrière-plan ou perd le réseau. Retour en portrait à la fin de la partie.
+
+**Historique :** un match de « Derniers matchs » (accueil) ouvre son détail : résultat, stats et déroulé complet.
+
 **Seul devant la borne ?** Dans la salle d'attente, « Jouer contre le bot » : la borne joue la raquette droite.
 Une demande de fin suffit, et ces parties ne comptent pas dans le tableau des scores.
 
@@ -81,6 +89,10 @@ dessinée à l'écran (QR, attente, compte à rebours, jeu, victoire) et boutons
 
 Raccourci : `./outils/borne-virtuelle/lancer.sh` ouvre la borne virtuelle déjà branchée sur le serveur en ligne
 (mot de passe de `borne-01` lu sur le VPS par SSH) ; `--local` pour le broker du Mac.
+
+Tester la manette avec un seul téléphone : `node outils/joueur-fantome.mjs PONG:XXXXXXXX` (code affiché sous la
+matrice de la borne virtuelle) fait rejoindre un joueur 1 « fantôme » ; coche « Robot » à gauche, puis scanne le
+nouveau QR avec ton téléphone, qui devient le joueur 2 (manette). `--local` pour l'API du Mac.
 
 « Couper le Wi-Fi » simule une panne de la borne (le broker publie son Last Will), « Reset » envoie un `abort`.
 Pendant une partie, la borne virtuelle continue en local et renvoie ses buts au rebranchement, comme l'ESP32.

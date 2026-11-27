@@ -13,7 +13,38 @@ const ALERT_BG = { speed: colors.orange, match_point: colors.apricot, borne_offl
  */
 export function LiveOverlays() {
   const insets = useSafeAreaInsets();
-  const { connected, alert, dismissAlert } = useLive();
+  const { connected, alert, dismissAlert, manette } = useLive();
+  if (manette) {
+    // Manette : bandeau fin en haut, transparent au toucher, pour ne jamais voler un appui sur HAUT / BAS.
+    const band = !connected
+      ? { bg: colors.pink, text: 'HORS LIGNE · RECONNEXION…' }
+      : alert
+        ? { bg: ALERT_BG[alert.kind], text: `${alert.title} ${alert.body}` }
+        : null;
+    if (!band) return null;
+    return (
+      <View
+        pointerEvents="none"
+        accessibilityRole="alert"
+        accessibilityLabel={band.text}
+        style={{
+          position: 'absolute',
+          top: insets.top + 6,
+          alignSelf: 'center',
+          maxWidth: '60%',
+          backgroundColor: band.bg,
+          borderWidth: 3,
+          borderColor: colors.ink,
+          paddingVertical: 4,
+          paddingHorizontal: 10,
+        }}
+      >
+        <T size={18} numberOfLines={1}>
+          {band.text}
+        </T>
+      </View>
+    );
+  }
   return (
     <>
       <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 6, left: 12, right: 12 }}>

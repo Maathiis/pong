@@ -33,6 +33,8 @@ export interface Match {
   right: { id: string | null; pseudo: string } | null;
   /** partie contre le bot de la borne (raquette droite) */
   vsBot: boolean;
+  /** raquette jouée avec la manette du téléphone (le joueur 2 : la borne n'a de boutons que pour le joueur 1) */
+  remote: Side | null;
   score: { left: number; right: number };
   winner: Side | null;
   matchPoint: Side | null;

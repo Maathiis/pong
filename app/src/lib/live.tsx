@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import * as Haptics from 'expo-haptics';
 import { AppState, Vibration } from 'react-native';
 import { io, type Socket } from 'socket.io-client';
 import { api } from './api';
@@ -14,6 +15,9 @@ import type { Alert, Match } from './types';
  * - `bornes` : statut en ligne / hors ligne de chaque borne connue.
  * - `alert` : dernière alerte reçue (seuil de vitesse, balle de match, borne hors ligne), affichée en bannière.
  * - `connected` : faux pendant une coupure réseau ; la reconnexion est automatique.
+ * - `sendPad` / `padLatency` : manette du téléphone (joueur 2) et aller-retour téléphone → borne → téléphone, en ms.
+ * - `manette` : vrai quand ce téléphone sert de manette (compte à rebours et partie) : écran paysage plein écran,
+ *   alertes discrètes et sans vibration longue (elles se mélangeraient aux retours d'appui).
  */
 interface LiveState {
   connected: boolean;
@@ -25,6 +29,9 @@ interface LiveState {
   leave: () => Promise<void>;
   playBot: () => Promise<void>;
   requestEnd: () => Promise<void>;
+  sendPad: (dir: -1 | 0 | 1) => void;
+  padLatency: number | null;
+  manette: boolean;
   dismiss: () => void;
   dismissAlert: () => void;
   refresh: () => Promise<void>;
@@ -35,15 +42,27 @@ const ACTIVE = ['WAITING', 'READY', 'COUNTDOWN', 'LIVE'];
 
 export const isOver = (m: Match) => m.status === 'FINISHED' || m.status === 'INTERRUPTED';
 
+/** Ce téléphone sert-il de manette ? (joueur 2 humain, pendant le compte à rebours et la partie) */
+export function isManette(m: Match | null, userId: string | undefined) {
+  if (!m?.remote || !userId || (m.status !== 'COUNTDOWN' && m.status !== 'LIVE')) return false;
+  return (m.remote === 'left' ? m.left?.id : m.right?.id) === userId;
+}
+
 export function LiveProvider({ children }: { children: ReactNode }) {
   const { token, user } = useAuth();
   const [connected, setConnected] = useState(false);
   const [match, setMatch] = useState<Match | null>(null);
   const [bornes, setBornes] = useState<Record<string, boolean>>({});
   const [alert, setAlert] = useState<Alert | null>(null);
+  const [padLatency, setPadLatency] = useState<number | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  /** Manette : numéro de la dernière commande, heure d'envoi des commandes récentes, dernier affichage de la latence. */
+  const pad = useRef({ n: 0, sentAt: new Map<number, number>(), shownAt: 0 });
   const matchRef = useRef<Match | null>(null);
   matchRef.current = match;
+  const manette = isManette(match, user?.id);
+  const manetteRef = useRef(false);
+  manetteRef.current = manette;
   const soundsOn = useRef(false);
   soundsOn.current = !!user?.settings.retroSounds;
 
@@ -85,6 +104,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         return;
       }
       react(prev, m);
+      // manette : un petit choc à chaque point, plus marqué quand c'est moi qui marque
+      if (manetteRef.current && prev?.id === m.id) {
+        const side = m.remote ?? 'right';
+        const other = side === 'left' ? 'right' : 'left';
+        if (m.score[side] > prev.score[side])
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+        else if (m.score[other] > prev.score[other])
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => undefined);
+      }
       // Je viens d'être ajouté à une partie : on affiche l'onglet MATCH.
       if (!prev && ACTIVE.includes(m.status)) router.navigate('/match');
       setMatch(m);
@@ -93,9 +121,21 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     socket.on('borne:status', (b: { id: string; online: boolean }) =>
       setBornes((prev) => ({ ...prev, [b.id]: b.online })),
     );
+    socket.on('pad:ack', ({ n }: { n: number }) => {
+      const p = pad.current;
+      const sent = p.sentAt.get(n);
+      if (sent === undefined) return;
+      p.sentAt.delete(n);
+      const now = Date.now();
+      // au plus 2 rafraîchissements par seconde : pas besoin de redessiner l'écran à chaque commande
+      if (now - p.shownAt > 500) {
+        p.shownAt = now;
+        setPadLatency(now - sent);
+      }
+    });
     socket.on('alert', (a: Alert) => {
       setAlert(a);
-      Vibration.vibrate(a.kind === 'borne_offline' ? [0, 120, 80, 120] : 200);
+      if (!manetteRef.current) Vibration.vibrate(a.kind === 'borne_offline' ? [0, 120, 80, 120] : 200);
       if (soundsOn.current) playSound('alerte');
     });
     return () => {
@@ -128,6 +168,15 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     if (!user) setMatch(null);
   }, [user]);
 
+  /** Commande de manette : envoyée en « volatile » (perdue plutôt que rejouée en retard après une coupure). */
+  const sendPad = useCallback((dir: -1 | 0 | 1) => {
+    const p = pad.current;
+    p.n += 1;
+    p.sentAt.set(p.n, Date.now());
+    if (p.sentAt.size > 50) p.sentAt.delete(p.sentAt.keys().next().value!); // la borne n'accuse pas toujours réception
+    socketRef.current?.volatile.emit('pad', { dir, n: p.n });
+  }, []);
+
   const value = useMemo<LiveState>(
     () => ({
       connected,
@@ -153,11 +202,14 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       requestEnd: async () => {
         if (match) setMatch(await api.requestEnd(match.id));
       },
+      sendPad,
+      padLatency,
+      manette,
       dismiss: () => setMatch(null),
       dismissAlert: () => setAlert(null),
       refresh,
     }),
-    [connected, match, bornes, alert, refresh],
+    [connected, match, bornes, alert, refresh, sendPad, padLatency, manette],
   );
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;

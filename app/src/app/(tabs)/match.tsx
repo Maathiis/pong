@@ -2,6 +2,7 @@ import { useLive } from '@/lib/live';
 import { MatchEnd } from '@/components/match/MatchEnd';
 import { MatchLive } from '@/components/match/MatchLive';
 import { MatchLobby } from '@/components/match/MatchLobby';
+import { MatchManette } from '@/components/match/MatchManette';
 import { MatchScan } from '@/components/match/MatchScan';
 import { MatchVersus } from '@/components/match/MatchVersus';
 
@@ -12,10 +13,12 @@ import { MatchVersus } from '@/components/match/MatchVersus';
  *   READY         → les deux joueurs sont là, bouton « Lancer la partie »
  *   COUNTDOWN     → compte à rebours
  *   LIVE          → score et stats en direct
+ *   joueur 2 (COUNTDOWN / LIVE) → manette en paysage (la borne n'a de boutons que pour le joueur 1)
  *   FINISHED / INTERRUPTED → écran de fin
  */
 export default function MatchTab() {
-  const { match } = useLive();
+  const { match, manette } = useLive();
+  if (match && manette) return <MatchManette match={match} />;
   switch (match?.status) {
     case 'WAITING':
       return <MatchLobby match={match} />;

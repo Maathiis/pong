@@ -44,8 +44,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Envoie une commande à une borne (topic pong/bornes/<id>/commands). */
-  command(borneId: string, message: Record<string, unknown>) {
-    this.client.publish(`${TOPIC_ROOT}/${borneId}/commands`, JSON.stringify(message), { qos: 1 });
+  command(borneId: string, message: Record<string, unknown>, qos: 0 | 1 = 1) {
+    this.client.publish(`${TOPIC_ROOT}/${borneId}/commands`, JSON.stringify(message), { qos });
   }
 
   private async dispatch(topic: string, payload: string) {

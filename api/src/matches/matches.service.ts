@@ -34,6 +34,8 @@ const COUNTDOWN_S = 5;
  * Le broker annonce « offline » ~22 s après la coupure (1,5 × keepalive) ; on attend encore 90 s
  * avant de noter la partie « interrompue » (Wi-Fi 3-5 s + TLS 1-3 s, plus un partage de connexion qui redémarre).
  */
+/** Manette du téléphone : au plus 30 commandes par seconde et par joueur (l'appli en envoie ~7 en appui long). */
+const PAD_MIN_INTERVAL_MS = 33;
 const OFFLINE_GRACE_MS = Number(process.env.OFFLINE_GRACE_S ?? 90) * 1000;
 const TARGET_SCORE = Number(process.env.TARGET_SCORE ?? 7);
 
@@ -75,6 +77,14 @@ export class MatchesService implements OnModuleInit {
    * (QoS 1) porte le même seq et doit être ignoré. En mémoire suffit : un redémarrage de l'API interrompt les parties.
    */
   private readonly lastGoalSeq = new Map<string, number>();
+  /**
+   * Joueurs qui jouent avec la manette du téléphone, pendant la partie (userId → partie, borne).
+   * En mémoire : la manette envoie plusieurs messages par seconde, pas question d'interroger la base à chaque fois.
+   */
+  private readonly remotes = new Map<
+    string,
+    { matchId: string; borneId: string; side: Side; lastAt: number }
+  >();
 
   constructor(
     @Inject(DB) private readonly db: Db,
@@ -91,9 +101,12 @@ export class MatchesService implements OnModuleInit {
         online ? this.onBorneOnline(borneId) : this.onBorneOffline(borneId),
       ),
     );
-    this.mqtt.onEvent((borneId, event) =>
-      this.lock(borneId, () => this.onBorneEvent(borneId, event)),
-    );
+    this.mqtt.onEvent((borneId, event) => {
+      // accusé de réception de la manette : hors verrou et sans base, c'est la mesure de latence
+      if (event.type === 'pad_ack') return this.onPadAck(borneId, event);
+      return this.lock(borneId, () => this.onBorneEvent(borneId, event));
+    });
+    this.realtime.onPad((userId, dir, n) => this.onPad(userId, dir, n));
   }
 
   // ───────────────────────────── QR code de la borne ─────────────────────────────
@@ -247,7 +260,18 @@ export class MatchesService implements OnModuleInit {
         left: p.left,
         right: p.right,
         bot: updated.vsBot ? 'right' : null, // raquette jouée par la borne elle-même
+        remote: this.remoteSide(updated), // raquette jouée avec la manette du téléphone
       });
+      const remote = this.remoteSide(updated);
+      const remoteUser = remote === 'right' ? updated.rightUserId : null;
+      if (remote && remoteUser) {
+        this.remotes.set(remoteUser, {
+          matchId: updated.id,
+          borneId: updated.borneId,
+          side: remote,
+          lastAt: 0,
+        });
+      }
       this.schedule(updated.id, COUNTDOWN_S * 1000, () =>
         this.goLive(updated.borneId, updated.id),
       );
@@ -395,7 +419,7 @@ export class MatchesService implements OnModuleInit {
       .from(matches)
       .where(eq(matches.id, matchId));
     if (!match) throw new NotFoundException('Partie introuvable.');
-    return this.toDto(match);
+    return this.toDto(match, 60); // détail d'une partie (historique) : tout le fil, pas seulement les derniers événements
   }
 
   // ───────────────────────────── Messages de la borne ─────────────────────────────
@@ -602,6 +626,40 @@ export class MatchesService implements OnModuleInit {
     }
   }
 
+  // ───────────────────────────── Manette du téléphone ─────────────────────────────
+
+  /**
+   * La borne n'a des boutons que pour le joueur 1 (gauche) : un joueur 2 humain joue avec son téléphone.
+   * Contre le bot, la raquette droite est jouée par la borne, il n'y a pas de manette.
+   */
+  private remoteSide(match: Match): Side | null {
+    return match.rightUserId && !match.vsBot ? 'right' : null;
+  }
+
+  /** Commande de manette (Socket.IO `pad`) : relayée telle quelle à la borne, en QoS 0 (une commande en retard ne sert à rien). */
+  private onPad(userId: string, dir: number, n: number) {
+    const remote = this.remotes.get(userId);
+    if (!remote) return; // pas de partie en cours avec manette : ignoré
+    const now = Date.now();
+    if (dir !== 0 && now - remote.lastAt < PAD_MIN_INTERVAL_MS) return; // « je lâche » passe toujours
+    remote.lastAt = now;
+    this.mqtt.command(
+      remote.borneId,
+      { type: 'pad', matchId: remote.matchId, side: remote.side, dir, n },
+      0,
+    );
+  }
+
+  /** La borne a reçu la commande n : on prévient le téléphone, qui en déduit l'aller-retour complet. */
+  private onPadAck(borneId: string, event: Record<string, unknown>) {
+    if (typeof event.n !== 'number') return;
+    for (const [userId, r] of this.remotes) {
+      if (r.borneId === borneId && r.matchId === event.matchId) {
+        this.realtime.toUsers([userId], 'pad:ack', { n: event.n });
+      }
+    }
+  }
+
   // ───────────────────────────── Transitions internes ─────────────────────────────
 
   private goLive(borneId: string, matchId: string) {
@@ -646,6 +704,8 @@ export class MatchesService implements OnModuleInit {
     this.clearTimer(match.id);
     this.clearTimer(`offline:${match.borneId}`);
     this.lastGoalSeq.delete(match.id);
+    for (const [userId, r] of this.remotes)
+      if (r.matchId === match.id) this.remotes.delete(userId);
     const [updated] = await this.db
       .update(matches)
       .set({
@@ -696,7 +756,7 @@ export class MatchesService implements OnModuleInit {
 
   // ───────────────────────────── Outils ─────────────────────────────
 
-  async toDto(match: Match) {
+  async toDto(match: Match, feedLimit = 8) {
     const p = await this.pseudos(match);
     const feed = await this.db
       .select({
@@ -707,7 +767,7 @@ export class MatchesService implements OnModuleInit {
       .from(matchEvents)
       .where(eq(matchEvents.matchId, match.id))
       .orderBy(desc(matchEvents.id))
-      .limit(8);
+      .limit(feedLimit);
     const end = match.endedAt ?? new Date();
     return {
       id: match.id,
@@ -721,6 +781,7 @@ export class MatchesService implements OnModuleInit {
           ? { id: null, pseudo: BOT_PSEUDO }
           : null,
       vsBot: match.vsBot,
+      remote: this.remoteSide(match),
       score: { left: match.scoreLeft, right: match.scoreRight },
       winner: match.winnerSide,
       matchPoint:
