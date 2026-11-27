@@ -24,6 +24,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   const signOut = useCallback(async () => {
+    // révocation côté serveur : le jeton ne sert plus à rien même s'il a été copié (sans réseau, on se déconnecte quand même)
+    await api.logout().catch(() => undefined);
     await SecureStore.deleteItemAsync(TOKEN_KEY);
     setApiToken(null);
     setToken(null);

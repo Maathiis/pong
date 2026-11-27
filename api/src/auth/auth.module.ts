@@ -9,7 +9,8 @@ import { AuthService } from './auth.service.js';
   imports: [
     JwtModule.register({
       secret: process.env.JWT_SECRET ?? 'change-moi-en-local',
-      signOptions: { expiresIn: '30d' },
+      // 7 jours (au lieu de 30), et révocables à la déconnexion grâce à tokenVersion (R2).
+      signOptions: { expiresIn: '7d' },
     }),
   ],
   controllers: [AuthController],

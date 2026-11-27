@@ -167,7 +167,8 @@ Les migrations de base s'appliquent toutes seules au démarrage de l'API.
 | --- | --- |
 | État des conteneurs | `docker compose -f docker-compose.prod.yml ps` |
 | Logs de l'API / du broker | `docker compose -f docker-compose.prod.yml logs -f api` (ou `mqtt`) |
-| Sauvegarder la base | `docker compose -f docker-compose.prod.yml exec db pg_dump -U pong pong > sauvegarde.sql` |
+| Sauvegarder la base | `sudo ./deploy/sauvegarde.sh` (aussi chaque nuit à 3 h 40 et avant chaque déploiement) |
+| Restaurer une sauvegarde | `gunzip -c /srv/pong-sauvegardes/pong-….sql.gz \| docker compose -f docker-compose.prod.yml exec -T db psql -U pong pong` |
 | Tout arrêter (données gardées) | `docker compose -f docker-compose.prod.yml down` |
 | Retirer Pong de Caddy | `sudo rm /srv/fireline/edge/sites/pong.caddy` puis `caddy reload` (étape 4) |
 
@@ -178,6 +179,18 @@ En cas de refus, Caddy essaie automatiquement un second fournisseur gratuit (Zer
 la borne devra alors connaître l'autorité de ZeroSSL au lieu de celle de Let's Encrypt (voir `docs/CONTRAT-BORNE.md`).
 Pour savoir qui a signé : `openssl s_client -connect pong.164-132-199-27.sslip.io:8883 </dev/null 2>/dev/null | grep issuer`.
 Si ça bloque durablement, la solution propre est un vrai nom de domaine.
+
+## Sauvegardes et conservation des données
+
+`deploy/sauvegarde.sh` écrit un `pg_dump` compressé dans `/srv/pong-sauvegardes/` (accès root seul), chaque nuit
+(cron posé par `install.sh`) et avant chaque déploiement. Les sauvegardes de plus de 30 jours sont supprimées :
+un compte supprimé dans l'appli disparaît donc aussi des sauvegardes au bout de 30 jours (RGPD).
+
+## Sécurité
+
+Le dossier de sécurité (risques, mesures, grille ETSI EN 303 645) est dans la documentation technique du projet.
+Pour signaler une faille : `SECURITY.md`. En-têtes HTTP (HSTS…) posés par Caddy (`deploy/pong.caddy`), API sans
+root dans son conteneur, connexions limitées (10 par minute et par IP, pseudo bloqué 15 min après 5 échecs).
 
 ## Avant la démo
 

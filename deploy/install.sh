@@ -70,6 +70,9 @@ else
   echo "ufw inactif, rien à faire."
 fi
 
+step "Sauvegarde de la base avant la mise à jour"
+./deploy/sauvegarde.sh avant-deploiement
+
 step "Lancement (build de l'API)"
 $COMPOSE up -d --build
 $COMPOSE restart mqtt   # relit la config, les comptes et les droits à chaque déploiement
@@ -77,6 +80,11 @@ $COMPOSE restart mqtt   # relit la config, les comptes et les droits à chaque d
 step "Renouvellement automatique du certificat (cron)"
 ( crontab -l 2>/dev/null | grep -v sync-mqtt-cert || true
   echo "17 4 * * 1 $(pwd)/deploy/sync-mqtt-cert.sh >> /var/log/pong-cert.log 2>&1" ) | crontab -
+echo "OK."
+
+step "Sauvegarde quotidienne de la base (cron, conservation 30 jours)"
+( crontab -l 2>/dev/null | grep -v pong/deploy/sauvegarde || true
+  echo "40 3 * * * $(pwd)/deploy/sauvegarde.sh >> /var/log/pong-sauvegarde.log 2>&1" ) | crontab -
 echo "OK."
 
 step "Vérification"

@@ -9,6 +9,7 @@ import {
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
 import { AuthService } from '../auth/auth.service.js';
+import { corsOrigin } from '../cors.js';
 
 /**
  * Temps réel vers l'appli (Socket.IO).
@@ -19,7 +20,7 @@ import { AuthService } from '../auth/auth.service.js';
  * Et reçoit de l'appli :
  *  - `pad` : { dir: -1 | 0 | 1, n } (manette du téléphone, relayée à la borne par MatchesService)
  */
-@WebSocketGateway({ cors: { origin: '*' } })
+@WebSocketGateway({ cors: { origin: corsOrigin } })
 export class RealtimeGateway implements OnGatewayConnection {
   private readonly logger = new Logger('Realtime');
   @WebSocketServer() server: Server;

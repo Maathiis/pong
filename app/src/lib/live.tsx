@@ -157,6 +157,17 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, [refresh]);
 
+  // La partie démarre et ce téléphone devient la manette : on l'affiche, où que soit le joueur
+  // (Réglages, détail d'une partie ouvert…), sinon il resterait sans onglets ni boutons.
+  // Nouvelle partie : la latence de la précédente ne veut plus rien dire (la borne n'envoie peut-être pas pad_ack).
+  useEffect(() => {
+    if (!manette) return;
+    pad.current.sentAt.clear();
+    setPadLatency(null);
+    if (router.canDismiss()) router.dismissAll();
+    router.navigate('/match');
+  }, [manette, match?.id]);
+
   // L'alerte s'efface toute seule au bout de 5 s.
   useEffect(() => {
     if (!alert) return;

@@ -39,6 +39,8 @@ export interface Match {
   winner: Side | null;
   matchPoint: Side | null;
   endRequests: Side[];
+  /** joueurs qui ont appuyé sur « Je suis prêt » (la partie démarre quand les deux l'ont fait, un seul contre le bot) */
+  startRequests: Side[];
   waitingUntil: string | null;
   countdownEndsAt: string | null;
   startedAt: string | null;

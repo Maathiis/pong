@@ -11,16 +11,10 @@
     "ios": {
       "supportsTablet": false,
       "requireFullScreen": true,
-      "bundleIdentifier": "fr.mds.pongconnecte",
-      "infoPlist": {
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
-        }
-      }
+      "bundleIdentifier": "fr.mds.pongconnecte"
     },
     "android": {
       "package": "fr.mds.pongconnecte",
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#FFF1C9",
         "foregroundImage": "./assets/android-icon-foreground.png",

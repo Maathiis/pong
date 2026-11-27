@@ -22,6 +22,8 @@ export const users = pgTable('users', {
   speedAlertThreshold: real('speed_alert_threshold').notNull().default(2.5),
   alertMatchPoint: boolean('alert_match_point').notNull().default(false),
   retroSounds: boolean('retro_sounds').notNull().default(false),
+  /** Incrémenté à la déconnexion : tous les jetons déjà émis deviennent invalides (révocation, R2). */
+  tokenVersion: integer('token_version').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -50,6 +52,8 @@ export const matches = pgTable('matches', {
   rightUserId: uuid('right_user_id').references(() => users.id, { onDelete: 'set null' }),
   /** Partie contre le bot : la borne joue la raquette droite, rightUserId reste vide. */
   vsBot: boolean('vs_bot').notNull().default(false),
+  /** Raquette jouée avec la manette du téléphone, fixée au lancement (null : boutons de la borne ou bot). */
+  remoteSide: varchar('remote_side', { length: 5 }).$type<Side>(),
   scoreLeft: integer('score_left').notNull().default(0),
   scoreRight: integer('score_right').notNull().default(0),
   winnerSide: varchar('winner_side', { length: 5 }).$type<Side>(),
@@ -64,6 +68,8 @@ export const matches = pgTable('matches', {
   streakSide: varchar('streak_side', { length: 5 }).$type<Side>(),
   streakCount: integer('streak_count').notNull().default(0),
   endRequests: jsonb('end_requests').$type<Side[]>().notNull().default([]),
+  /** Joueurs qui ont appuyé sur « Je suis prêt » : la partie démarre quand les deux l'ont fait (un seul contre le bot). */
+  startRequests: jsonb('start_requests').$type<Side[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

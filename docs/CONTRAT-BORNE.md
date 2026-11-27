@@ -99,7 +99,11 @@ du QR, puis « PRÊTS ! ».
 { "type": "start", "matchId": "6f1c…", "countdown": 5, "targetScore": 7, "left": "NATHAN", "right": "MATHIS", "bot": null, "remote": "right" }
 ```
 
-- `countdown` : secondes de compte à rebours à afficher avant d'engager la balle.
+- `countdown` : secondes de compte à rebours à afficher avant d'engager la balle (5 s, avec l'animation 5-4-3-2-1).
+  **La balle ne doit pas partir avant la fin du compte à rebours** : c'est à ce moment que le serveur passe la
+  partie en cours (LIVE), et que les joueurs, prévenus par l'appli, sont devant leur raquette.
+- `start` n'est envoyé que lorsque les deux joueurs ont appuyé sur « Je suis prêt » dans l'appli (un seul contre
+  le bot). La borne n'a rien à gérer de plus.
 - `left` / `right` : pseudos (2 à 8 caractères, majuscules et chiffres, donc affichables sur la matrice).
 - **La borne garde `matchId`** : elle doit le renvoyer dans chaque événement.
 - `bot` : `null` pour une partie entre deux joueurs, `"right"` pour une partie contre le bot (voir ci-dessous).
@@ -215,7 +219,8 @@ Joueur 1 scanne le QR      →  serveur publie  lobby {left:"NATHAN", right:null
                            →  serveur publie  qr {code:"PONG:Q4M8ZK2C"}           (nouveau code pour le joueur 2)
 Joueur 2 scanne le QR      →  serveur publie  lobby {left:"NATHAN", right:"MATHIS", ready:true}
                            →  serveur publie  qr {code:null}                      (effacer le QR)
-« Lancer » dans l'appli    →  serveur publie  start {matchId, countdown:5, left, right, targetScore:7}
+« Je suis prêt » × 2       →  serveur publie  start {matchId, countdown:5, left, right, targetScore:7}
+… 5 s de compte à rebours sur la matrice, puis la balle part …
 … la borne joue …
 But à gauche               ←  borne publie    goal {matchId, seq:1, side:"left", rallyHits, bounces, maxSpeed}
                            →  serveur publie  score {matchId, left:1, right:0, matchPoint:null}

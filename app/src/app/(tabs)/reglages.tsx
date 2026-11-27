@@ -91,7 +91,11 @@ export default function Reglages() {
             <Toggle label="Borne hors ligne" value={s.alertOffline} onChange={(v) => toggle('alertOffline', v)} />
           </Line>
           <Line label="Balle rapide">
-            <Toggle label="Alerte balle rapide" value={s.alertSpeedRecord} onChange={(v) => toggle('alertSpeedRecord', v)} />
+            <Toggle
+              label="Alerte balle rapide"
+              value={s.alertSpeedRecord}
+              onChange={(v) => toggle('alertSpeedRecord', v)}
+            />
           </Line>
           <View
             style={{
@@ -112,7 +116,11 @@ export default function Reglages() {
                   disabled={!s.alertSpeedRecord || threshold <= THRESHOLD_MIN}
                   onPress={() => toggle('speedAlertThreshold', Math.round((threshold - THRESHOLD_STEP) * 10) / 10)}
                 />
-                <P size={12} style={{ minWidth: 56, textAlign: 'center' }} accessibilityLabel={`Seuil ${speedLabel(threshold)}`}>
+                <P
+                  size={12}
+                  style={{ minWidth: 56, textAlign: 'center' }}
+                  accessibilityLabel={`Seuil ${speedLabel(threshold)}`}
+                >
                   {speedLabel(threshold)}
                 </P>
                 <Step
@@ -135,41 +143,47 @@ export default function Reglages() {
         </Section>
 
         <Section title="APPLI">
-          <Line label="Sons rétro">
+          <Line label="Sons rétro" last={!__DEV__}>
             <Toggle label="Sons rétro" value={s.retroSounds} onChange={(v) => toggle('retroSounds', v)} />
           </Line>
-          <Line label="Adresse du serveur" last onPress={() => setEditingServer(true)}>
-            {!editingServer && (
-              <T size={20} color={colors.inkSoft} numberOfLines={1} style={{ maxWidth: 170 }}>
-                {server.replace(/^https?:\/\//, '')}
-              </T>
-            )}
-          </Line>
-          {editingServer && (
-            <View style={{ padding: 12, paddingTop: 0, gap: 10 }}>
-              <TextInput
-                value={server}
-                onChangeText={setServer}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-                placeholder={defaultServerUrl()}
-                accessibilityLabel="Adresse du serveur"
-                style={{
-                  height: 48,
-                  borderWidth: 3,
-                  borderColor: colors.ink,
-                  paddingHorizontal: 10,
-                  fontFamily: fonts.mono,
-                  fontSize: 22,
-                  color: colors.ink,
-                }}
-              />
-              <T size={18} color={colors.inkSoft}>
-                Laisse vide pour revenir à {defaultServerUrl()}.
-              </T>
-              <Button label="ENREGISTRER" height={44} size={10} onPress={saveServer} />
-            </View>
+          {/* Réservé au développement (dossier sécurité, R6) : dans l'appli de démonstration, le jeton ne doit
+              pouvoir partir que vers le serveur officiel, pas vers une adresse saisie à la main. */}
+          {__DEV__ && (
+            <>
+              <Line label="Adresse du serveur" last onPress={() => setEditingServer(true)}>
+                {!editingServer && (
+                  <T size={20} color={colors.inkSoft} numberOfLines={1} style={{ maxWidth: 170 }}>
+                    {server.replace(/^https?:\/\//, '')}
+                  </T>
+                )}
+              </Line>
+              {editingServer && (
+                <View style={{ padding: 12, paddingTop: 0, gap: 10 }}>
+                  <TextInput
+                    value={server}
+                    onChangeText={setServer}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
+                    placeholder={defaultServerUrl()}
+                    accessibilityLabel="Adresse du serveur"
+                    style={{
+                      height: 48,
+                      borderWidth: 3,
+                      borderColor: colors.ink,
+                      paddingHorizontal: 10,
+                      fontFamily: fonts.mono,
+                      fontSize: 22,
+                      color: colors.ink,
+                    }}
+                  />
+                  <T size={18} color={colors.inkSoft}>
+                    Laisse vide pour revenir à {defaultServerUrl()}.
+                  </T>
+                  <Button label="ENREGISTRER" height={44} size={10} onPress={saveServer} />
+                </View>
+              )}
+            </>
           )}
         </Section>
 

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module.js';
 import { BornesService } from './bornes/bornes.service.js';
 import { DbModule } from './db/db.module.js';
@@ -11,7 +12,8 @@ import { UsersController } from './users/users.controller.js';
 import { UsersService } from './users/users.service.js';
 
 @Module({
-  imports: [DbModule, AuthModule],
+  // Limite de débit (R1) : appliquée aux routes d'authentification, voir AuthController.
+  imports: [DbModule, AuthModule, ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }])],
   controllers: [UsersController, MatchesController],
   providers: [MqttService, RealtimeGateway, AlertsService, BornesService, MatchesService, UsersService],
 })

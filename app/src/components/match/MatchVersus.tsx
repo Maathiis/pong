@@ -19,6 +19,9 @@ export function MatchVersus({ match }: { match: Match }) {
   // joueur 2 humain : il joue avec la manette de son téléphone (la borne n'a de boutons que pour le joueur 1)
   const iAmRemote = match.remote !== null && (match.remote === 'left' ? match.left?.id : match.right?.id) === user?.id;
   const ready = match.status === 'READY';
+  const mySide = match.left?.id === user?.id ? 'left' : 'right';
+  const iAmReady = match.startRequests.includes(mySide);
+  const other = mySide === 'left' ? match.right : match.left;
   const [busy, setBusy] = useState<'start' | 'leave' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const now = useNow(!ready, 200);
@@ -50,11 +53,22 @@ export function MatchVersus({ match }: { match: Match }) {
           paddingHorizontal: 12,
         }}
       >
-        <P size={11}>{match.vsBot ? 'PRÊT CONTRE LE BOT' : '2 JOUEURS PRÊTS'}</P>
+        <P size={11}>
+          {match.vsBot
+            ? 'PRÊT CONTRE LE BOT'
+            : ready
+              ? `JOUEURS PRÊTS : ${match.startRequests.length}/2`
+              : '2 JOUEURS PRÊTS'}
+        </P>
       </View>
 
       <View style={{ alignSelf: 'stretch' }}>
-        <PlayerBlock side="GAUCHE · JOUEUR 1" pseudo={match.left?.pseudo ?? '???'} bg={colors.mint} />
+        <PlayerBlock
+          side="GAUCHE · JOUEUR 1"
+          pseudo={match.left?.pseudo ?? '???'}
+          bg={colors.mint}
+          ready={ready && !match.vsBot && match.startRequests.includes('left')}
+        />
         <View
           style={{
             alignSelf: 'center',
@@ -74,6 +88,7 @@ export function MatchVersus({ match }: { match: Match }) {
           pseudo={match.right?.pseudo ?? '???'}
           bg={colors.pink}
           right
+          ready={ready && !match.vsBot && match.startRequests.includes('right')}
         />
       </View>
 
@@ -86,13 +101,15 @@ export function MatchVersus({ match }: { match: Match }) {
                 ? "Tu joues à droite avec ton téléphone : au lancement, l'écran passe en manette. Tiens-le à l'horizontale, pouce gauche sur HAUT, pouce droit sur BAS."
                 : match.remote
                   ? 'Le joueur 1 prend les boutons de la borne, le joueur 2 joue avec son téléphone.'
-                  : 'Mettez-vous chacun devant votre raquette, puis lancez la partie.'}
+                  : 'Mettez-vous chacun devant votre raquette.'}
+            {match.vsBot ? '' : ' La partie démarre quand les deux joueurs ont appuyé sur « Je suis prêt ».'}
           </T>
           <ErrorText style={{ textAlign: 'center' }}>{error}</ErrorText>
           <Button
-            label="LANCER LA PARTIE"
+            label={match.vsBot ? 'LANCER LA PARTIE' : iAmReady ? `EN ATTENTE DE ${other?.pseudo ?? "L'AUTRE"}…` : 'JE SUIS PRÊT'}
             height={62}
-            size={13}
+            size={match.vsBot || !iAmReady ? 13 : 10}
+            disabled={!match.vsBot && iAmReady}
             loading={busy === 'start'}
             onPress={() => run('start')}
           />
@@ -129,7 +146,19 @@ export function MatchVersus({ match }: { match: Match }) {
   );
 }
 
-function PlayerBlock({ side, pseudo, bg, right }: { side: string; pseudo: string; bg: string; right?: boolean }) {
+function PlayerBlock({
+  side,
+  pseudo,
+  bg,
+  right,
+  ready,
+}: {
+  side: string;
+  pseudo: string;
+  bg: string;
+  right?: boolean;
+  ready?: boolean;
+}) {
   const paddle = (
     <View style={{ width: 14, height: 64, backgroundColor: colors.white, borderWidth: 3, borderColor: colors.ink }} />
   );
@@ -150,6 +179,11 @@ function PlayerBlock({ side, pseudo, bg, right }: { side: string; pseudo: string
       <View style={{ gap: 8, alignItems: right ? 'flex-end' : 'flex-start' }}>
         <P size={9}>{side}</P>
         <ShadowTitle size={22}>{pseudo}</ShadowTitle>
+        {ready && (
+          <View style={{ backgroundColor: colors.lime, borderWidth: 3, borderColor: colors.ink, paddingVertical: 2, paddingHorizontal: 6 }}>
+            <P size={8}>PRÊT</P>
+          </View>
+        )}
       </View>
       {!right && paddle}
     </View>

@@ -19,6 +19,9 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     this.client = mqtt.connect(url, {
       clientId: `pong-api-${process.pid}`,
       reconnectPeriod: 2000,
+      // Pas de file d'attente pour le QoS 0 (commandes de manette) : pendant une coupure avec le broker,
+      // elles seraient toutes envoyées d'un coup à la reconnexion, et la raquette bougerait toute seule.
+      queueQoSZero: false,
       // En prod, le broker refuse les connexions anonymes (voir deploy/mosquitto).
       username: process.env.MQTT_USERNAME || undefined,
       password: process.env.MQTT_PASSWORD || undefined,

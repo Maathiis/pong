@@ -49,8 +49,8 @@ export class MatchesController {
   }
 
   @Get('matches/:id')
-  get(@Param('id', ParseUUIDPipe) id: string) {
-    return this.matches.get(id);
+  get(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
+    return this.matches.get(user, id);
   }
 
   @Post('matches/:id/start')

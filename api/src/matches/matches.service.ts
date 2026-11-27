@@ -83,7 +83,13 @@ export class MatchesService implements OnModuleInit {
    */
   private readonly remotes = new Map<
     string,
-    { matchId: string; borneId: string; side: Side; lastAt: number }
+    {
+      matchId: string;
+      borneId: string;
+      side: Side;
+      lastAt: number;
+      lastDir: number;
+    }
   >();
 
   constructor(
@@ -216,6 +222,7 @@ export class MatchesService implements OnModuleInit {
           ? { leftUserId: user.id }
           : { rightUserId: user.id }),
         status: full ? 'READY' : 'WAITING',
+        startRequests: [], // nouveau joueur : chacun doit (re)confirmer qu'il est prêt
         waitingUntil: new Date(Date.now() + WAITING_MS),
       })
       .where(eq(matches.id, match.id))
@@ -233,7 +240,10 @@ export class MatchesService implements OnModuleInit {
     return this.publish(updated);
   }
 
-  /** « Lancer la partie » : possible dès que les deux joueurs sont là. */
+  /**
+   * « Je suis prêt » : la partie démarre quand les deux joueurs l'ont demandé (contre le bot, le joueur seul suffit).
+   * Personne ne se fait lancer une partie dessus alors qu'il n'est pas devant sa raquette.
+   */
   async start(user: User, matchId: string) {
     const match = await this.getOwn(user, matchId);
     return this.lock(match.borneId, async () => {
@@ -242,12 +252,31 @@ export class MatchesService implements OnModuleInit {
         throw new ConflictException(
           'Il faut deux joueurs (ou le bot) pour lancer la partie.',
         );
+      const side: Side = fresh.leftUserId === user.id ? 'left' : 'right';
+      const requests = Array.from(new Set([...fresh.startRequests, side]));
+      if (!fresh.vsBot && requests.length < 2) {
+        const [waiting] = await this.db
+          .update(matches)
+          .set({
+            startRequests: requests,
+            waitingUntil: new Date(Date.now() + WAITING_MS),
+          })
+          .where(eq(matches.id, fresh.id))
+          .returning();
+        this.schedule(waiting.id, WAITING_MS, () =>
+          this.expireWaiting(waiting.borneId, waiting.id),
+        );
+        await this.log(waiting.id, 'ready', `${user.pseudo} est prêt`);
+        return this.publish(waiting);
+      }
       const [updated] = await this.db
         .update(matches)
         .set({
           status: 'COUNTDOWN',
+          startRequests: requests,
           waitingUntil: null,
           countdownEndsAt: new Date(Date.now() + COUNTDOWN_S * 1000),
+          remoteSide: this.remoteSide(fresh), // gardé pour l'historique (la règle peut changer plus tard)
         })
         .where(eq(matches.id, fresh.id))
         .returning();
@@ -270,6 +299,7 @@ export class MatchesService implements OnModuleInit {
           borneId: updated.borneId,
           side: remote,
           lastAt: 0,
+          lastDir: 0,
         });
       }
       this.schedule(updated.id, COUNTDOWN_S * 1000, () =>
@@ -278,7 +308,9 @@ export class MatchesService implements OnModuleInit {
       await this.log(
         updated.id,
         'start',
-        `${user.pseudo} lance la partie : ${p.left} contre ${p.right}`,
+        updated.vsBot
+          ? `${user.pseudo} lance la partie contre le bot`
+          : `Les deux joueurs sont prêts : ${p.left} contre ${p.right}`,
       );
       return this.publish(updated);
     });
@@ -353,7 +385,12 @@ export class MatchesService implements OnModuleInit {
     }
     const [updated] = await this.db
       .update(matches)
-      .set({ leftUserId: nextLeft, rightUserId: nextRight, status: 'WAITING' })
+      .set({
+        leftUserId: nextLeft,
+        rightUserId: nextRight,
+        status: 'WAITING',
+        startRequests: [],
+      })
       .where(eq(matches.id, match.id))
       .returning();
     await this.sendLobby(updated);
@@ -413,13 +450,10 @@ export class MatchesService implements OnModuleInit {
     return match ? this.toDto(match) : null;
   }
 
-  async get(matchId: string) {
-    const [match] = await this.db
-      .select()
-      .from(matches)
-      .where(eq(matches.id, matchId));
-    if (!match) throw new NotFoundException('Partie introuvable.');
-    return this.toDto(match, 60); // détail d'une partie (historique) : tout le fil, pas seulement les derniers événements
+  /** Détail d'une partie : réservé à ses joueurs (R7). */
+  async get(user: User, matchId: string) {
+    const match = await this.getOwn(user, matchId);
+    return this.toDto(match, 1000); // détail (historique) : tout le fil ; 1000 = garde-fou, une partie en compte quelques dizaines
   }
 
   // ───────────────────────────── Messages de la borne ─────────────────────────────
@@ -633,6 +667,9 @@ export class MatchesService implements OnModuleInit {
    * Contre le bot, la raquette droite est jouée par la borne, il n'y a pas de manette.
    */
   private remoteSide(match: Match): Side | null {
+    // partie lancée : la valeur fixée au lancement (null pour les parties d'avant la manette)
+    if (match.status !== 'WAITING' && match.status !== 'READY')
+      return match.remoteSide ?? null;
     return match.rightUserId && !match.vsBot ? 'right' : null;
   }
 
@@ -641,8 +678,11 @@ export class MatchesService implements OnModuleInit {
     const remote = this.remotes.get(userId);
     if (!remote) return; // pas de partie en cours avec manette : ignoré
     const now = Date.now();
-    if (dir !== 0 && now - remote.lastAt < PAD_MIN_INTERVAL_MS) return; // « je lâche » passe toujours
+    // Seules les répétitions de la même direction sont limitées : « je lâche » et un changement de sens passent toujours.
+    if (dir === remote.lastDir && now - remote.lastAt < PAD_MIN_INTERVAL_MS)
+      return;
     remote.lastAt = now;
+    remote.lastDir = dir;
     this.mqtt.command(
       remote.borneId,
       { type: 'pad', matchId: remote.matchId, side: remote.side, dir, n },
@@ -789,6 +829,7 @@ export class MatchesService implements OnModuleInit {
           ? this.matchPoint(match)
           : null,
       endRequests: match.endRequests,
+      startRequests: match.startRequests,
       waitingUntil: match.waitingUntil,
       countdownEndsAt: match.countdownEndsAt,
       startedAt: match.startedAt,

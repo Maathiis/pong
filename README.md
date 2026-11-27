@@ -56,8 +56,8 @@ Tout fonctionne dans Expo Go, y compris le scan du QR code affiché par la borne
 1. La borne se connecte au broker et publie `online` (voir le contrat) : le serveur lui envoie un code,
    qu'elle affiche en **QR code sur sa matrice 24 × 24**.
 2. Joueur 1 : onglet MATCH, il scanne le QR de la matrice. Il joue à gauche. La borne affiche aussitôt un nouveau QR.
-3. Joueur 2 : il scanne le nouveau QR. Les deux sont prêts : l'un d'eux appuie sur « Lancer la partie »
-   (compte à rebours de 5 s).
+3. Joueur 2 : il scanne le nouveau QR. Chacun appuie sur « Je suis prêt » ; quand les deux l'ont fait, compte à
+   rebours de 5 s sur la matrice et dans les applis, puis la balle part (contre le bot, un seul appui suffit).
 4. La borne envoie un `goal` à chaque point ; scores et stats bougent en direct dans les deux applis.
 5. À 7 points, le serveur envoie `stop` à la borne et l'appli affiche l'écran de fin. Un nouveau QR s'affiche.
 
@@ -84,7 +84,7 @@ dessinée à l'écran (QR, attente, compte à rebours, jeu, victoire) et boutons
 
 1. `docker compose up -d` (le broker local accepte aussi le WebSocket, port 9001).
 2. Ouvre `outils/borne-virtuelle/index.html` dans Chrome ou Safari sur le Mac, puis « Brancher la borne ».
-3. Scanne le QR de l'écran avec l'appli sur deux téléphones (ou deux comptes), puis « Lancer la partie ».
+3. Scanne le QR de l'écran avec l'appli sur deux téléphones (ou deux comptes), puis « Je suis prêt » sur les deux.
 4. Joue au clavier (Z/W et S à gauche, ↑ et ↓ à droite), aux boutons, ou coche « Robot » pour jouer seul.
 
 Raccourci : `./outils/borne-virtuelle/lancer.sh` ouvre la borne virtuelle déjà branchée sur le serveur en ligne
@@ -119,6 +119,7 @@ Pendant une partie, la borne virtuelle continue en local et renvoie ses buts au 
 | `JWT_SECRET` | `change-moi-en-local` | Signature des sessions |
 | `TARGET_SCORE` | `7` | Points pour gagner |
 | `OFFLINE_GRACE_S` | `90` | Secondes d'attente d'une borne hors ligne avant de noter la partie interrompue |
+| `RATE_LIMIT_LOGIN` / `RATE_LIMIT_REGISTER` | `10` / `5` | Connexions / inscriptions par minute et par adresse IP (à relever seulement pour des tests) |
 
 À mettre dans un fichier `.env` à la racine (voir `.env.example`).
 

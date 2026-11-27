@@ -1,0 +1,1 @@
+ALTER TABLE "matches" ADD COLUMN "start_requests" jsonb DEFAULT '[]'::jsonb NOT NULL;

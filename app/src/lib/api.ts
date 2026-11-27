@@ -42,6 +42,8 @@ export const api = {
   register: (b: { pseudo: string; password: string; consent: boolean }) =>
     request<Session>('POST', '/auth/register', b),
   login: (b: { pseudo: string; password: string }) => request<Session>('POST', '/auth/login', b),
+  /** révoque tous les jetons du compte côté serveur (déconnexion sur tous les téléphones) */
+  logout: () => request<null>('POST', '/auth/logout'),
   me: () => request<User>('GET', '/me'),
   stats: () => request<Stats>('GET', '/me/stats'),
   updateSettings: (s: Partial<Settings>) => request<User>('PATCH', '/me/settings', s),

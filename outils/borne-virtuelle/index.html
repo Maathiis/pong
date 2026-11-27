@@ -317,7 +317,8 @@ function onCommand(msg) {
     case 'lobby': S.left = msg.left; S.right = msg.right; S.ready = !!msg.ready; S.score = { left: 0, right: 0 };
       if (msg.ready && ghost.matchId && !ghost.started) ghostStart(); // le téléphone est arrivé : on lance
       if (S.mode === 'idle' || S.mode === 'ready') S.mode = S.ready ? 'ready' : 'idle'; break;
-    case 'start': S.matchId = msg.matchId; S.seq = 0; S.pending = []; S.bot = msg.bot ?? null;
+    case 'start': if (ghost.matchId === msg.matchId) ghostSay('Partie lancée : ton téléphone est la manette (raquette droite). « Reset (abort) » arrête la partie.');
+      S.matchId = msg.matchId; S.seq = 0; S.pending = []; S.bot = msg.bot ?? null;
       S.remote = msg.remote ?? null; S.remoteDir = 0; S.remoteAt = 0; S.left = msg.left; S.right = msg.right; S.targetScore = msg.targetScore ?? 7;
       S.score = { left: 0, right: 0 }; S.countdownEnd = performance.now() + (msg.countdown ?? 5) * 1000; S.mode = 'countdown';
       G.pads = { left: 9.5, right: 9.5 }; break;
@@ -467,7 +468,7 @@ async function ghostLeave() {
 }
 async function ghostStart() {
   ghost.started = true;
-  try { await api(`/matches/${ghost.matchId}/start`, {}, ghost.token); ghostSay('Partie lancée : ton téléphone est la manette (raquette droite). « Reset (abort) » arrête la partie.'); }
+  try { await api(`/matches/${ghost.matchId}/start`, {}, ghost.token); ghostSay('Le fantôme est prêt : appuie sur « Je suis prêt » dans l\'appli. La partie démarre après un compte à rebours de 5 s.'); }
   catch (e) { ghost.started = false; ghostSay(`Fantôme : ${e.message}`); }
 }
 function ghostDone(reason) {
