@@ -115,6 +115,10 @@
         <div class="r" id="pRight">—</div>
       </div>
       <p class="hint" id="qrText">Aucun QR reçu.</p>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="ghostBtn" disabled>TESTER LA MANETTE</button>
+      </div>
+      <p class="hint" id="ghostText">Un clic : un joueur 1 « fantôme » rejoint la partie (sa raquette joue seule). Scanne ensuite le QR avec ton téléphone : tu es le joueur 2, la partie se lance toute seule et ton téléphone devient la manette.</p>
     </div>
 
     <div class="card">
@@ -217,6 +221,9 @@ function render(now) {
   $('pLeft').textContent = S.left ?? '—'; $('pRight').textContent = S.right ?? '—';
   $('score').textContent = `${S.score.left} : ${S.score.right}`;
   $('qrText').textContent = S.qr ? `QR affiché : ${S.qr}` : 'Pas de QR affiché.';
+  const gb = $('ghostBtn');
+  if (ghost.matchId && !ghost.started) { gb.textContent = 'RETIRER LE FANTÔME'; gb.disabled = ghost.busy; }
+  else { gb.textContent = 'TESTER LA MANETTE'; gb.disabled = ghost.busy || !!ghost.matchId || !S.net || !S.qr || !!S.left || S.mode !== 'idle'; }
   $('speedLabel').textContent = S.mode === 'playing' ? `vitesse x${speedMult().toFixed(1).replace('.', ',')}` : '';
   draw();
 }
@@ -288,6 +295,7 @@ function loop(now) {
 
 // ───────────────────────── MQTT ─────────────────────────
 let client = null, borneId = 'borne-01';
+const closes = []; // instants des dernières coupures (détection d'une autre borne au même identifiant)
 const topic = (k) => `pong/bornes/${borneId}/${k}`;
 function log(dir, msg) {
   const el = $('log'), line = document.createElement('div');
@@ -307,6 +315,7 @@ function onCommand(msg) {
       if (msg.code && S.matchId && (S.mode === 'playing' || S.mode === 'countdown')) { S.mode = 'idle'; S.matchId = null; S.bot = null; S.pending = []; S.left = S.right = null; S.score = { left: 0, right: 0 }; }
       if (S.mode !== 'playing' && S.mode !== 'countdown' && S.mode !== 'over') S.mode = msg.code ? 'idle' : (S.ready ? 'ready' : 'idle'); break;
     case 'lobby': S.left = msg.left; S.right = msg.right; S.ready = !!msg.ready; S.score = { left: 0, right: 0 };
+      if (msg.ready && ghost.matchId && !ghost.started) ghostStart(); // le téléphone est arrivé : on lance
       if (S.mode === 'idle' || S.mode === 'ready') S.mode = S.ready ? 'ready' : 'idle'; break;
     case 'start': S.matchId = msg.matchId; S.seq = 0; S.pending = []; S.bot = msg.bot ?? null;
       S.remote = msg.remote ?? null; S.remoteDir = 0; S.remoteAt = 0; S.left = msg.left; S.right = msg.right; S.targetScore = msg.targetScore ?? 7;
@@ -319,7 +328,7 @@ function onCommand(msg) {
         publish('events', { type: 'pad_ack', matchId: S.matchId, n: msg.n }, { qos: 0 }, true);
       }
       break;
-    case 'stop': S.winner = msg.winner; S.mode = 'over'; S.overUntil = performance.now() + 3000; S.matchId = null; S.ready = false; S.bot = null; S.remote = null;
+    case 'stop': ghostDone(msg.reason); S.winner = msg.winner; S.mode = 'over'; S.overUntil = performance.now() + 3000; S.matchId = null; S.ready = false; S.bot = null; S.remote = null;
       break; // les pseudos restent affichés jusqu'à la prochaine salle (« lobby »)
   }
 }
@@ -345,6 +354,14 @@ function connect() {
   client.on('message', (_t, payload) => { try { onCommand(JSON.parse(payload.toString())); } catch { log('sys', 'message illisible'); } });
   client.on('close', () => {
     $('netDot').classList.remove('on'); if (S.net) log('sys', 'connexion perdue'); S.net = false; S.qr = null;
+    // Coupures à répétition sans « Couper le Wi-Fi » : une autre borne utilise le même identifiant (le broker
+    // déconnecte l'ancienne à chaque nouvelle connexion, et les deux se relancent en boucle).
+    const now = performance.now(); closes.push(now); while (closes.length && now - closes[0] > 15000) closes.shift();
+    if (closes.length >= 3 && client.options.reconnectPeriod) {
+      log('sys', `connexion coupée ${closes.length} fois en 15 s : une autre borne utilise sans doute « ${borneId} » (autre onglet de la borne virtuelle, vraie borne…). Ferme-la.`);
+      ghostSay(`La connexion saute sans arrêt : une autre borne est branchée avec l'identifiant « ${borneId} » (autre onglet de cette page, vraie borne…). Ferme-la, puis reclique.`);
+      closes.length = 0;
+    }
     if (!(S.matchId && (S.mode === 'playing' || S.mode === 'countdown'))) S.mode = 'offline'; // la partie continue en local
   });
   client.on('error', (e) => {
@@ -380,6 +397,90 @@ document.querySelectorAll('button[data-pad]').forEach((btn) => {
 const KEYS = { z: ['left', -1], w: ['left', -1], s: ['left', 1], ArrowUp: ['right', -1], ArrowDown: ['right', 1] };
 addEventListener('keydown', (e) => { const k = KEYS[e.key]; if (k && e.target.tagName !== 'INPUT') { e.preventDefault(); G.held[k[0]] = k[1]; } });
 addEventListener('keyup', (e) => { const k = KEYS[e.key]; if (k && G.held[k[0]] === k[1]) G.held[k[0]] = 0; });
+
+// ───────────────────────── Joueur 1 fantôme (tester la manette seul) ─────────────────────────
+// Le fantôme rejoint par l'API avec le code du QR, comme un téléphone ; sa raquette (gauche) est jouée par le robot.
+// Quand le joueur 2 (ton téléphone) arrive, il lance la partie. Compte créé une fois, gardé dans ce navigateur.
+const ghost = { token: null, matchId: null, started: false, busy: false, robotWas: false };
+function apiBase() {
+  const u = $('url').value.trim();
+  if (/^wss?:\/\/(localhost|127\.0\.0\.1)/.test(u)) return 'http://localhost:3001/api';
+  const m = u.match(/^wss?:\/\/([^/]+)/);
+  return m ? `https://${m[1]}/api` : null;
+}
+async function api(path, body, token) {
+  const res = await fetch(apiBase() + path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) { const e = new Error(Array.isArray(data?.message) ? data.message.join(', ') : (data?.message ?? `HTTP ${res.status}`)); e.status = res.status; throw e; }
+  return data;
+}
+function ghostSay(text) { $('ghostText').textContent = text; }
+async function ghostToken() {
+  if (ghost.token) return ghost.token;
+  const key = `pong-fantome:${apiBase()}`;
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(key) || 'null'); } catch {}
+  if (saved) {
+    try { ghost.token = (await api('/auth/login', { pseudo: saved.pseudo, password: saved.password })).token; return ghost.token; }
+    catch (e) { if (e.status !== 401) throw e; } // compte effacé : on en recrée un
+  }
+  const password = Array.from(crypto.getRandomValues(new Uint8Array(18)), (b) => b.toString(16).padStart(2, '0')).join('');
+  for (const pseudo of ['FANTOME', `FANT${Math.random().toString(36).slice(2, 6).toUpperCase()}`]) {
+    try {
+      ghost.token = (await api('/auth/register', { pseudo, password, consent: true })).token;
+      try { localStorage.setItem(key, JSON.stringify({ pseudo, password })); } catch {}
+      return ghost.token;
+    } catch (e) { if (e.status !== 409) throw e; } // pseudo pris : on essaie le suivant
+  }
+  throw new Error('impossible de créer le compte du fantôme');
+}
+async function ghostJoin() {
+  const code = S.qr; // lu au clic : il peut disparaître pendant la connexion du compte (coupure MQTT)
+  if (!code) return ghostSay("Pas de QR affiché : attends que la borne en affiche un, puis reclique.");
+  ghost.busy = true;
+  try {
+    const token = await ghostToken();
+    let m;
+    try {
+      m = await api('/matches/join', { code: S.qr || code }, token);
+    } catch (e) {
+      // le code a changé pendant la connexion du compte (QR renouvelé) : un essai avec le nouveau
+      if (e.status === 404 && S.qr && S.qr !== code) m = await api('/matches/join', { code: S.qr }, token);
+      else throw e;
+    }
+    ghost.matchId = m.id; ghost.started = false;
+    ghost.robotWas = $('botLeft').checked; $('botLeft').checked = true;
+    ghostSay(`${m.left?.pseudo} est le joueur 1 (raquette gauche jouée par le robot). Scanne le nouveau QR avec ton téléphone : la partie se lance dès que tu arrives.`);
+    log('sys', `fantôme ${m.left?.pseudo} dans la salle`);
+  } catch (e) { ghostSay(`Fantôme : ${e.message}`); }
+  ghost.busy = false;
+}
+async function ghostLeave() {
+  ghost.busy = true;
+  try { await api(`/matches/${ghost.matchId}/leave`, {}, ghost.token); } catch (e) { ghostSay(`Fantôme : ${e.message}`); }
+  ghostDone();
+  ghost.busy = false;
+}
+async function ghostStart() {
+  ghost.started = true;
+  try { await api(`/matches/${ghost.matchId}/start`, {}, ghost.token); ghostSay('Partie lancée : ton téléphone est la manette (raquette droite). « Reset (abort) » arrête la partie.'); }
+  catch (e) { ghost.started = false; ghostSay(`Fantôme : ${e.message}`); }
+}
+function ghostDone(reason) {
+  if (!ghost.matchId) return;
+  ghost.matchId = null; ghost.started = false;
+  $('botLeft').checked = ghost.robotWas;
+  ghostSay(
+    reason === 'cancelled' ? 'Salle fermée (fantôme retiré, ou personne n\'a rejoint à temps). Reclique pour recommencer.'
+      : reason ? 'Partie terminée. Reclique sur « Tester la manette » pour rejouer.'
+        : 'Fantôme retiré.',
+  );
+}
+$('ghostBtn').onclick = () => (ghost.matchId && !ghost.started ? ghostLeave() : ghostJoin());
 
 // ───────────────────────── Préremplissage (lancer.sh) ─────────────────────────
 // index.html#url=…&borne=…&pass=…&auto=1 remplit la connexion et branche la borne.

@@ -90,9 +90,9 @@ dessinée à l'écran (QR, attente, compte à rebours, jeu, victoire) et boutons
 Raccourci : `./outils/borne-virtuelle/lancer.sh` ouvre la borne virtuelle déjà branchée sur le serveur en ligne
 (mot de passe de `borne-01` lu sur le VPS par SSH) ; `--local` pour le broker du Mac.
 
-Tester la manette avec un seul téléphone : `node outils/joueur-fantome.mjs PONG:XXXXXXXX` (code affiché sous la
-matrice de la borne virtuelle) fait rejoindre un joueur 1 « fantôme » ; coche « Robot » à gauche, puis scanne le
-nouveau QR avec ton téléphone, qui devient le joueur 2 (manette). `--local` pour l'API du Mac.
+Tester la manette avec un seul téléphone : bouton « TESTER LA MANETTE » de la borne virtuelle. Un joueur 1
+« fantôme » rejoint la partie (sa raquette joue seule) ; scanne le nouveau QR avec ton téléphone, la partie se
+lance toute seule et ton téléphone devient la manette du joueur 2. « Reset (abort) » arrête la partie.
 
 « Couper le Wi-Fi » simule une panne de la borne (le broker publie son Last Will), « Reset » envoie un `abort`.
 Pendant une partie, la borne virtuelle continue en local et renvoie ses buts au rebranchement, comme l'ESP32.

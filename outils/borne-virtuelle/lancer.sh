@@ -42,8 +42,16 @@ else
   fi
 fi
 
-# Page servie en local (127.0.0.1 uniquement), sur un port libre.
-port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+# Page servie en local (127.0.0.1 uniquement). Port fixe si possible : le navigateur y garde le compte du joueur fantôme.
+port=$(python3 -c '
+import socket
+for p in (8765, 0):
+    s = socket.socket()
+    try:
+        s.bind(("127.0.0.1", p)); print(s.getsockname()[1]); break
+    except OSError:
+        pass
+')
 python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1 &
 server=$!
 trap 'kill $server 2>/dev/null' EXIT
