@@ -124,7 +124,8 @@ Vérification depuis n'importe où : `curl https://pong.164-132-199-27.sslip.io/
 
 ## Tester avec la borne virtuelle
 
-Ouvre `outils/borne-virtuelle/index.html`, clique « Serveur en ligne », entre le mot de passe de `borne-01`, puis
+Le plus simple : `./outils/borne-virtuelle/lancer.sh` (lit le mot de passe sur le VPS, ouvre la page et branche la borne).
+À la main : ouvre `outils/borne-virtuelle/index.html`, clique « Serveur en ligne », entre le mot de passe de `borne-01`, puis
 « Brancher la borne ». Elle passe par `wss://pong.164-132-199-27.sslip.io/mqtt` (Caddy → Mosquitto, port 9001
 interne), avec les mêmes comptes et les mêmes droits qu'une vraie borne.
 

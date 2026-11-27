@@ -79,6 +79,9 @@ dessinée à l'écran (QR, attente, compte à rebours, jeu, victoire) et boutons
 3. Scanne le QR de l'écran avec l'appli sur deux téléphones (ou deux comptes), puis « Lancer la partie ».
 4. Joue au clavier (Z/W et S à gauche, ↑ et ↓ à droite), aux boutons, ou coche « Robot » pour jouer seul.
 
+Raccourci : `./outils/borne-virtuelle/lancer.sh` ouvre la borne virtuelle déjà branchée sur le serveur en ligne
+(mot de passe de `borne-01` lu sur le VPS par SSH) ; `--local` pour le broker du Mac.
+
 « Couper le Wi-Fi » simule une panne de la borne (le broker publie son Last Will), « Reset » envoie un `abort`.
 Pendant une partie, la borne virtuelle continue en local et renvoie ses buts au rebranchement, comme l'ESP32.
 

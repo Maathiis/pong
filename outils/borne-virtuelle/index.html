@@ -371,6 +371,19 @@ const KEYS = { z: ['left', -1], w: ['left', -1], s: ['left', 1], ArrowUp: ['righ
 addEventListener('keydown', (e) => { const k = KEYS[e.key]; if (k && e.target.tagName !== 'INPUT') { e.preventDefault(); G.held[k[0]] = k[1]; } });
 addEventListener('keyup', (e) => { const k = KEYS[e.key]; if (k && G.held[k[0]] === k[1]) G.held[k[0]] = 0; });
 
+// ───────────────────────── Préremplissage (lancer.sh) ─────────────────────────
+// index.html#url=…&borne=…&pass=…&auto=1 remplit la connexion et branche la borne.
+// Le fragment (#…) n'est jamais envoyé au serveur ; on l'efface aussitôt de la barre d'adresse.
+(function prefill() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (![...p.keys()].length) return;
+  if (p.get('url')) $('url').value = p.get('url');
+  if (p.get('borne')) $('borneId').value = p.get('borne');
+  if (p.has('pass')) $('pass').value = p.get('pass');
+  history.replaceState(null, '', location.pathname);
+  if (p.get('auto') === '1') { log('sys', `branchement automatique de ${$('borneId').value}`); connect(); $('connectBtn').disabled = true; }
+})();
+
 clear(); requestAnimationFrame(loop);
 </script>
 </body>
