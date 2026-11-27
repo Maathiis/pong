@@ -8,7 +8,7 @@ import { useNow } from '@/lib/useNow';
 import { MatchScreen } from './shared';
 
 /**
- * Les deux joueurs sont dans la salle.
+ * Les deux joueurs sont dans la salle (ou le joueur et le bot de la borne).
  *  READY     : l'un des deux appuie sur « Lancer la partie ».
  *  COUNTDOWN : compte à rebours (la borne affiche le même).
  */
@@ -46,7 +46,7 @@ export function MatchVersus({ match }: { match: Match }) {
           paddingHorizontal: 12,
         }}
       >
-        <P size={11}>2 JOUEURS PRÊTS</P>
+        <P size={11}>{match.vsBot ? 'PRÊT CONTRE LE BOT' : '2 JOUEURS PRÊTS'}</P>
       </View>
 
       <View style={{ alignSelf: 'stretch' }}>
@@ -65,13 +65,20 @@ export function MatchVersus({ match }: { match: Match }) {
         >
           <P size={16}>VS</P>
         </View>
-        <PlayerBlock side="DROITE · JOUEUR 2" pseudo={match.right?.pseudo ?? '???'} bg={colors.pink} right />
+        <PlayerBlock
+          side={match.vsBot ? 'DROITE · BOT DE LA BORNE' : 'DROITE · JOUEUR 2'}
+          pseudo={match.right?.pseudo ?? '???'}
+          bg={colors.pink}
+          right
+        />
       </View>
 
       {ready ? (
         <View style={{ alignSelf: 'stretch', marginTop: 'auto', gap: 12 }}>
           <T size={21} color={colors.inkSoft} style={{ textAlign: 'center' }}>
-            Mettez-vous chacun devant votre raquette, puis lancez la partie.
+            {match.vsBot
+              ? 'Mets-toi devant la raquette de gauche : la borne joue celle de droite.'
+              : 'Mettez-vous chacun devant votre raquette, puis lancez la partie.'}
           </T>
           <ErrorText style={{ textAlign: 'center' }}>{error}</ErrorText>
           <Button
@@ -105,6 +112,7 @@ export function MatchVersus({ match }: { match: Match }) {
           </View>
           <T size={21} color={colors.inkSoft} style={{ marginTop: 'auto', textAlign: 'center' }}>
             Regarde la matrice : utilise les 2 boutons de ta raquette (haut / bas).
+            {match.vsBot ? ' Le bot joue à droite.' : ''}
           </T>
         </>
       )}

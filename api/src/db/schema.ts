@@ -36,6 +36,9 @@ export const bornes = pgTable('bornes', {
 export type MatchStatus = 'WAITING' | 'READY' | 'COUNTDOWN' | 'LIVE' | 'FINISHED' | 'INTERRUPTED' | 'CANCELLED';
 export type Side = 'left' | 'right';
 
+/** Pseudo affiché pour le bot de la borne (réservé : aucun joueur ne peut le prendre). */
+export const BOT_PSEUDO = 'BOT';
+
 export const matches = pgTable('matches', {
   id: uuid('id').primaryKey().defaultRandom(),
   borneId: varchar('borne_id', { length: 32 })
@@ -45,6 +48,8 @@ export const matches = pgTable('matches', {
   targetScore: integer('target_score').notNull().default(7),
   leftUserId: uuid('left_user_id').references(() => users.id, { onDelete: 'set null' }),
   rightUserId: uuid('right_user_id').references(() => users.id, { onDelete: 'set null' }),
+  /** Partie contre le bot : la borne joue la raquette droite, rightUserId reste vide. */
+  vsBot: boolean('vs_bot').notNull().default(false),
   scoreLeft: integer('score_left').notNull().default(0),
   scoreRight: integer('score_right').notNull().default(0),
   winnerSide: varchar('winner_side', { length: 5 }).$type<Side>(),

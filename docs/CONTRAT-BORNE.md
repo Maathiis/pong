@@ -7,6 +7,9 @@ et s'arrête, avec les pseudos, et recevoir les buts avec leurs stats.
 
 > **Version 2 (26/11/2026), validée avec Nathan :** numéro `seq` dans chaque `goal`, et la partie continue
 > quand la borne perd le réseau (le serveur attend 90 s avant de la noter « interrompue »). Voir § 1 et § 3.
+>
+> **Version 2.1 (27/11/2026) :** partie contre le bot. Champ `bot` dans `lobby` et `start` : quand il vaut
+> `"right"`, c'est la borne qui joue la raquette droite (voir « Partie contre le bot » au § 2).
 
 **En résumé, la borne doit :**
 1. se connecter au broker et publier `online` (avec `offline` en Last Will) ;
@@ -79,7 +82,7 @@ La borne s'abonne à cette topic (QoS 1). Messages en JSON, toujours avec un cha
 ### `lobby` : les joueurs dans la salle
 
 ```json
-{ "type": "lobby", "left": "NATHAN", "right": null, "ready": false }
+{ "type": "lobby", "left": "NATHAN", "right": null, "ready": false, "bot": null }
 ```
 
 Envoyé à chaque joueur qui rejoint ou quitte. `ready` passe à `true` quand les deux joueurs sont là :
@@ -89,12 +92,28 @@ du QR, puis « PRÊTS ! ».
 ### `start` : la partie commence
 
 ```json
-{ "type": "start", "matchId": "6f1c…", "countdown": 5, "targetScore": 7, "left": "NATHAN", "right": "MATHIS" }
+{ "type": "start", "matchId": "6f1c…", "countdown": 5, "targetScore": 7, "left": "NATHAN", "right": "MATHIS", "bot": null }
 ```
 
 - `countdown` : secondes de compte à rebours à afficher avant d'engager la balle.
 - `left` / `right` : pseudos (2 à 8 caractères, majuscules et chiffres, donc affichables sur la matrice).
 - **La borne garde `matchId`** : elle doit le renvoyer dans chaque événement.
+- `bot` : `null` pour une partie entre deux joueurs, `"right"` pour une partie contre le bot (voir ci-dessous).
+
+### Partie contre le bot
+
+Un joueur seul dans la salle peut choisir « Jouer contre le bot » dans l'appli. Le serveur envoie alors :
+
+```json
+{ "type": "lobby", "left": "NATHAN", "right": "BOT", "ready": true, "bot": "right" }
+{ "type": "qr", "code": null }
+```
+
+puis, au lancement, un `start` avec `"right": "BOT"` et `"bot": "right"`. Pendant toute la partie, **la borne
+pilote elle-même la raquette droite** (même IA que la démo `demo_pong`, battable : plus lente qu'un humain) et
+ignore les boutons de droite. Le reste ne change pas : elle publie un `goal` à chaque point (`side: "right"` quand
+le bot marque), le serveur envoie `score` et `stop`. Le pseudo `BOT` est réservé : aucun joueur ne peut le prendre.
+Les parties contre le bot ne comptent pas dans le tableau des scores public.
 
 ### `score` : score officiel après chaque but
 

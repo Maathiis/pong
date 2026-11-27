@@ -69,27 +69,31 @@ export function MatchLive({ match }: { match: Match }) {
           ))}
         </View>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={{ flexDirection: 'row', gap: 6 }}>
-            {[0, 1].map((i) => (
-              <View
-                key={i}
-                style={{
-                  width: 18,
-                  height: 18,
-                  borderWidth: 3,
-                  borderColor: colors.ink,
-                  backgroundColor: i < match.endRequests.length ? colors.orange : colors.white,
-                }}
-              />
-            ))}
+        {match.vsBot ? (
+          <T size={20}>Contre le bot, tu peux arrêter la partie quand tu veux.</T>
+        ) : (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {[0, 1].map((i) => (
+                <View
+                  key={i}
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderWidth: 3,
+                    borderColor: colors.ink,
+                    backgroundColor: i < match.endRequests.length ? colors.orange : colors.white,
+                  }}
+                />
+              ))}
+            </View>
+            <T size={20}>
+              {match.endRequests.length === 0
+                ? 'Les deux joueurs doivent demander la fin'
+                : `${match.endRequests.length} joueur sur 2 a demandé la fin`}
+            </T>
           </View>
-          <T size={20}>
-            {match.endRequests.length === 0
-              ? 'Les deux joueurs doivent demander la fin'
-              : `${match.endRequests.length} joueur sur 2 a demandé la fin`}
-          </T>
-        </View>
+        )}
         <ErrorText>{error}</ErrorText>
         <Button
           label={iAsked ? 'FIN DEMANDÉE' : 'FIN DU MATCH'}

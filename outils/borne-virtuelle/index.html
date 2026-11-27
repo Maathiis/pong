@@ -174,6 +174,7 @@ const S = {
   matchId: null, targetScore: 7, countdownEnd: 0, score: { left: 0, right: 0 }, winner: null, overUntil: 0,
   net: false,                 // connectée au broker ; une partie continue en local pendant une coupure
   seq: 0, pending: [],        // numéro du dernier but, et buts à renvoyer à la reconnexion (contrat : « seq »)
+  bot: null,                  // raquette jouée par la borne (« bot » dans start) : 'right' contre le bot, sinon null
 };
 const G = { // le jeu, en « cases » de la matrice
   padH: 5, padSpeed: 16, v0: 9, ball: { x: 12, y: 12, vx: 0, vy: 0 }, pads: { left: 9.5, right: 9.5 },
@@ -201,7 +202,7 @@ function render(now) {
       break;
     }
     case 'playing': drawGame();
-      setState(S.net ? `En jeu · premier à ${S.targetScore}` : `En jeu hors ligne · ${S.pending.length} but(s) à renvoyer`); break;
+      setState(S.net ? `En jeu${S.bot ? ' contre le bot' : ''} · premier à ${S.targetScore}` : `En jeu hors ligne · ${S.pending.length} but(s) à renvoyer`); break;
     case 'over': {
       clear(); const c = S.winner === 'left' ? COLORS.left : S.winner === 'right' ? COLORS.right : '#5a4a7a';
       const blink = Math.floor(now / 300) % 2 === 0;
@@ -219,6 +220,8 @@ function render(now) {
 }
 
 // ───────────────────────── Le jeu ─────────────────────────
+// raquette pilotée par la borne : partie contre le bot (contrat), ou case « Robot » cochée pour tester seul
+const isBot = (side) => S.bot === side || $(side === 'left' ? 'botLeft' : 'botRight').checked;
 const speedMult = () => Math.hypot(G.ball.vx, G.ball.vy) / G.v0;
 function serve(now, dir) {
   G.ball = { x: 11.5, y: 11.5, vx: 0, vy: 0 }; G.serveAt = now + 900; G.serveDir = dir;
@@ -236,10 +239,10 @@ function drawGame() {
 function step(dt, now) {
   for (const side of ['left', 'right']) {
     let dir = G.held[side];
-    if ($(side === 'left' ? 'botLeft' : 'botRight').checked) {
+    if (isBot(side)) {
       const target = G.ball.y - G.padH / 2 + 0.5; dir = Math.abs(target - G.pads[side]) < 0.4 ? 0 : Math.sign(target - G.pads[side]);
     }
-    const bot = $(side === 'left' ? 'botLeft' : 'botRight').checked;
+    const bot = isBot(side);
     // le robot est volontairement plus lent qu'un humain : il finit par rater quand la balle accélère
     G.pads[side] = Math.min(N - G.padH, Math.max(0, G.pads[side] + dir * G.padSpeed * (bot ? 0.55 : 1) * dt));
   }
@@ -298,21 +301,21 @@ function onCommand(msg) {
   switch (msg.type) {
     case 'qr': S.qr = msg.code;
       // un code alors qu'on joue : le serveur a arrêté la partie pendant une coupure trop longue
-      if (msg.code && S.matchId && (S.mode === 'playing' || S.mode === 'countdown')) { S.mode = 'idle'; S.matchId = null; S.pending = []; S.left = S.right = null; S.score = { left: 0, right: 0 }; }
+      if (msg.code && S.matchId && (S.mode === 'playing' || S.mode === 'countdown')) { S.mode = 'idle'; S.matchId = null; S.bot = null; S.pending = []; S.left = S.right = null; S.score = { left: 0, right: 0 }; }
       if (S.mode !== 'playing' && S.mode !== 'countdown' && S.mode !== 'over') S.mode = msg.code ? 'idle' : (S.ready ? 'ready' : 'idle'); break;
     case 'lobby': S.left = msg.left; S.right = msg.right; S.ready = !!msg.ready; S.score = { left: 0, right: 0 };
       if (S.mode === 'idle' || S.mode === 'ready') S.mode = S.ready ? 'ready' : 'idle'; break;
-    case 'start': S.matchId = msg.matchId; S.seq = 0; S.pending = []; S.left = msg.left; S.right = msg.right; S.targetScore = msg.targetScore ?? 7;
+    case 'start': S.matchId = msg.matchId; S.seq = 0; S.pending = []; S.bot = msg.bot ?? null; S.left = msg.left; S.right = msg.right; S.targetScore = msg.targetScore ?? 7;
       S.score = { left: 0, right: 0 }; S.countdownEnd = performance.now() + (msg.countdown ?? 5) * 1000; S.mode = 'countdown';
       G.pads = { left: 9.5, right: 9.5 }; break;
     case 'score': S.score = { left: msg.left, right: msg.right }; break;
-    case 'stop': S.winner = msg.winner; S.mode = 'over'; S.overUntil = performance.now() + 3000; S.matchId = null; S.ready = false;
+    case 'stop': S.winner = msg.winner; S.mode = 'over'; S.overUntil = performance.now() + 3000; S.matchId = null; S.ready = false; S.bot = null;
       break; // les pseudos restent affichés jusqu'à la prochaine salle (« lobby »)
   }
 }
 function connect() {
   borneId = $('borneId').value.trim() || 'borne-01';
-  const pass = $('pass').value;
+  const pass = $('pass').value.trim(); // un copier-coller depuis le terminal ajoute souvent un espace ou un retour à la ligne
   client = mqtt.connect($('url').value.trim(), {
     clientId: borneId, reconnectPeriod: 2000, keepalive: 10,
     ...(pass ? { username: borneId, password: pass } : {}),
@@ -334,7 +337,14 @@ function connect() {
     $('netDot').classList.remove('on'); if (S.net) log('sys', 'connexion perdue'); S.net = false; S.qr = null;
     if (!(S.matchId && (S.mode === 'playing' || S.mode === 'countdown'))) S.mode = 'offline'; // la partie continue en local
   });
-  client.on('error', (e) => log('sys', `erreur : ${e.message}`));
+  client.on('error', (e) => {
+    if (/not authori[sz]ed/i.test(e.message)) {
+      // le broker a refusé l'identifiant ou le mot de passe : inutile de réessayer en boucle
+      client.options.reconnectPeriod = 0; client.end(true); client = null; // le prochain « Brancher » relit le mot de passe
+      $('connectBtn').disabled = false;
+      log('sys', `refusé par le broker : vérifie le mot de passe de ${borneId} (l'identifiant MQTT est l'id de la borne)`);
+    } else log('sys', `erreur : ${e.message}`);
+  });
 }
 $('connectBtn').onclick = () => {
   if (client) { client.options.reconnectPeriod = 2000; client.reconnect(); $('connectBtn').disabled = true; }

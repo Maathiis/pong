@@ -1,0 +1,1 @@
+ALTER TABLE "matches" ADD COLUMN "vs_bot" boolean DEFAULT false NOT NULL;

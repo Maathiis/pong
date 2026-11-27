@@ -84,6 +84,7 @@ PubSubClient mqtt(wifi);
 String matchId = "";     // vide = pas de partie en cours
 bool playing = false;
 int goalSeq = 0;         // numéro du dernier but envoyé (« seq » du contrat), remis à 0 à chaque « start »
+bool botRight = false;   // partie contre le bot : la borne joue elle-même la raquette droite
 
 // Stats de l'échange en cours, remises à zéro après chaque but.
 int rallyHits = 0;       // renvois de raquette
@@ -101,6 +102,7 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
     if (doc["code"].is<const char*>()) {
       // Un code pendant une partie : le serveur l'a arrêtée (coupure trop longue). Retour à l'attente.
       playing = false;
+      botRight = false;
       matchId = "";
       drawQr(doc["code"]);
     } else Serial.println("QR masqué");
@@ -123,6 +125,8 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
     // À FAIRE : afficher les pseudos, le compte à rebours, puis lancer la balle
     playing = true;
     goalSeq = 0;
+    // « bot » = "right" : partie contre le bot. À FAIRE : piloter la raquette droite par l'IA, ignorer ses boutons.
+    botRight = strcmp(doc["bot"] | "", "right") == 0;
     rallyHits = 0; bounces = 0; maxSpeed = 1.0;
 
   } else if (strcmp(type, "score") == 0) {
@@ -134,6 +138,7 @@ void onCommand(char* topic, byte* payload, unsigned int length) {
     Serial.printf("Stop (%s), vainqueur : %s\n", reason, winner);
     // À FAIRE : arrêter la balle, afficher le vainqueur, revenir à l'écran d'attente
     playing = false;
+    botRight = false;
     matchId = "";
   }
 }

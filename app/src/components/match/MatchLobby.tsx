@@ -9,9 +9,10 @@ import { MatchScreen, PlayersCard, QrGlyph, Target } from './shared';
 
 /** Le joueur est dans la salle, il attend le second joueur. */
 export function MatchLobby({ match }: { match: Match }) {
-  const { leave } = useLive();
+  const { leave, playBot } = useLive();
   const now = useNow(true, 1000);
   const [leaving, setLeaving] = useState(false);
+  const [botLoading, setBotLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const remaining = match.waitingUntil ? (new Date(match.waitingUntil).getTime() - now) / 1000 : 0;
 
@@ -37,6 +38,23 @@ export function MatchLobby({ match }: { match: Match }) {
         <StatusDot boxed ok>
           Salle ouverte · encore {mmss(remaining)}
         </StatusDot>
+        {/* pas d'adversaire sous la main : la borne joue la raquette droite */}
+        <Button
+          label="JOUER CONTRE LE BOT"
+          height={56}
+          loading={botLoading}
+          onPress={async () => {
+            setBotLoading(true);
+            setError(null);
+            try {
+              await playBot();
+            } catch (e) {
+              setError((e as Error).message);
+            } finally {
+              setBotLoading(false);
+            }
+          }}
+        />
         <Button
           label="QUITTER LA SALLE"
           bg={colors.pink}

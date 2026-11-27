@@ -66,6 +66,9 @@ Elles s'affichent en bannière dans l'appli, avec vibration, et un son si « Son
 
 Les deux joueurs peuvent aussi arrêter la partie (« Fin du match » des deux côtés) : elle est notée interrompue.
 
+**Seul devant la borne ?** Dans la salle d'attente, « Jouer contre le bot » : la borne joue la raquette droite.
+Une demande de fin suffit, et ces parties ne comptent pas dans le tableau des scores.
+
 ## Tester sans la borne : la borne virtuelle
 
 `outils/borne-virtuelle/index.html` se comporte exactement comme l'ESP32 (même contrat MQTT) : matrice 24 × 24

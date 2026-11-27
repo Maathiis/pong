@@ -13,6 +13,7 @@ import { randomInt } from 'node:crypto';
 import { BornesService } from '../bornes/bornes.service.js';
 import { DB, type Db } from '../db/db.module.js';
 import {
+  BOT_PSEUDO,
   matchEvents,
   matches,
   users,
@@ -226,7 +227,7 @@ export class MatchesService implements OnModuleInit {
       const fresh = await this.getOwn(user, matchId);
       if (fresh.status !== 'READY')
         throw new ConflictException(
-          'Il faut deux joueurs pour lancer la partie.',
+          'Il faut deux joueurs (ou le bot) pour lancer la partie.',
         );
       const [updated] = await this.db
         .update(matches)
@@ -245,6 +246,7 @@ export class MatchesService implements OnModuleInit {
         targetScore: updated.targetScore,
         left: p.left,
         right: p.right,
+        bot: updated.vsBot ? 'right' : null, // raquette jouée par la borne elle-même
       });
       this.schedule(updated.id, COUNTDOWN_S * 1000, () =>
         this.goLive(updated.borneId, updated.id),
@@ -254,6 +256,38 @@ export class MatchesService implements OnModuleInit {
         'start',
         `${user.pseudo} lance la partie : ${p.left} contre ${p.right}`,
       );
+      return this.publish(updated);
+    });
+  }
+
+  /**
+   * « Jouer contre le bot » : le joueur seul dans la salle prend le bot comme adversaire.
+   * La salle est complète (plus de QR code), la partie se lance ensuite comme d'habitude.
+   */
+  async playBot(user: User, matchId: string) {
+    const match = await this.getOwn(user, matchId);
+    return this.lock(match.borneId, async () => {
+      const fresh = await this.getOwn(user, matchId);
+      if (fresh.status !== 'WAITING' || fresh.rightUserId) {
+        throw new ConflictException(
+          'Le bot ne peut remplacer que le joueur 2, avant le lancement.',
+        );
+      }
+      const [updated] = await this.db
+        .update(matches)
+        .set({
+          vsBot: true,
+          status: 'READY',
+          waitingUntil: new Date(Date.now() + WAITING_MS),
+        })
+        .where(eq(matches.id, fresh.id))
+        .returning();
+      this.schedule(updated.id, WAITING_MS, () =>
+        this.expireWaiting(updated.borneId, updated.id),
+      );
+      await this.sendLobby(updated);
+      await this.syncCode(updated.borneId); // salle complète : la borne efface le QR code
+      await this.log(updated.id, 'bot', `${user.pseudo} joue contre le bot`);
       return this.publish(updated);
     });
   }
@@ -271,6 +305,15 @@ export class MatchesService implements OnModuleInit {
   }
 
   private async removePlayer(match: Match, user: User) {
+    if (match.vsBot) {
+      // contre le bot, le joueur est seul : s'il part, la salle ferme
+      return this.finish(
+        match,
+        'CANCELLED',
+        null,
+        `${user.pseudo} a quitté la salle`,
+      );
+    }
     const left = match.leftUserId === user.id ? null : match.leftUserId;
     const right = match.rightUserId === user.id ? null : match.rightUserId;
     // Celui qui reste passe à gauche, pour que « joueur 1 » soit toujours rempli en premier.
@@ -302,8 +345,9 @@ export class MatchesService implements OnModuleInit {
     this.mqtt.command(match.borneId, {
       type: 'lobby',
       left: match.leftUserId ? p.left : null,
-      right: match.rightUserId ? p.right : null,
+      right: match.rightUserId || match.vsBot ? p.right : null,
       ready: match.status === 'READY',
+      bot: match.vsBot ? 'right' : null,
     });
   }
 
@@ -320,12 +364,14 @@ export class MatchesService implements OnModuleInit {
       }
       const side: Side = fresh.leftUserId === user.id ? 'left' : 'right';
       const requests = Array.from(new Set([...fresh.endRequests, side]));
-      if (requests.length === 2) {
+      if (requests.length === 2 || fresh.vsBot) {
         return this.finish(
           { ...fresh, endRequests: requests },
           'INTERRUPTED',
           null,
-          'Fin demandée par les deux joueurs',
+          fresh.vsBot
+            ? `${user.pseudo} arrête la partie`
+            : 'Fin demandée par les deux joueurs',
         );
       }
       const [updated] = await this.db
@@ -671,7 +717,10 @@ export class MatchesService implements OnModuleInit {
       left: match.leftUserId ? { id: match.leftUserId, pseudo: p.left } : null,
       right: match.rightUserId
         ? { id: match.rightUserId, pseudo: p.right }
-        : null,
+        : match.vsBot
+          ? { id: null, pseudo: BOT_PSEUDO }
+          : null,
+      vsBot: match.vsBot,
       score: { left: match.scoreLeft, right: match.scoreRight },
       winner: match.winnerSide,
       matchPoint:
@@ -731,7 +780,10 @@ export class MatchesService implements OnModuleInit {
       : [];
     const find = (id: string | null) =>
       (id ? rows.find((r) => r.id === id)?.pseudo : undefined) ?? '???';
-    return { left: find(match.leftUserId), right: find(match.rightUserId) };
+    return {
+      left: find(match.leftUserId),
+      right: match.vsBot ? BOT_PSEUDO : find(match.rightUserId),
+    };
   }
 
   private async activeMatchOf(userId: string) {

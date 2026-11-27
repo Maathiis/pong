@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { toPublicUser } from '../auth/auth.service.js';
 import { DB, type Db } from '../db/db.module.js';
-import { matchEvents, matches, users, type Side, type User } from '../db/schema.js';
+import { BOT_PSEUDO, matchEvents, matches, users, type Side, type User } from '../db/schema.js';
 import { SettingsDto } from './settings.dto.js';
 
 @Injectable()
@@ -65,7 +65,7 @@ export class UsersService {
         result: result as 'V' | 'D' | null,
         status: m.status,
         me: user.pseudo,
-        opponent: opponents.find((o) => o.id === opponentId)?.pseudo ?? 'ANCIEN',
+        opponent: m.vsBot ? BOT_PSEUDO : (opponents.find((o) => o.id === opponentId)?.pseudo ?? 'ANCIEN'),
         scoreMe: side === 'left' ? m.scoreLeft : m.scoreRight,
         scoreOpponent: side === 'left' ? m.scoreRight : m.scoreLeft,
         endedAt: m.endedAt,
@@ -101,7 +101,8 @@ export class UsersService {
                   or (m.winner_side = 'right' and m.right_user_id = u.id)
              )::int as wins
       from ${users} u
-      join ${matches} m on m.status = 'FINISHED' and (m.left_user_id = u.id or m.right_user_id = u.id)
+      join ${matches} m on m.status = 'FINISHED' and not m.vs_bot -- les parties contre le bot ne comptent pas au classement
+                        and (m.left_user_id = u.id or m.right_user_id = u.id)
       group by u.id
       order by wins desc, played asc, u.pseudo asc
       limit 20

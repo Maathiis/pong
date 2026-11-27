@@ -23,6 +23,7 @@ interface LiveState {
   join: (code: string) => Promise<Match>;
   start: () => Promise<void>;
   leave: () => Promise<void>;
+  playBot: () => Promise<void>;
   requestEnd: () => Promise<void>;
   dismiss: () => void;
   dismissAlert: () => void;
@@ -140,6 +141,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       },
       start: async () => {
         if (match) setMatch(await api.start(match.id));
+      },
+      playBot: async () => {
+        if (match) setMatch(await api.playBot(match.id));
       },
       leave: async () => {
         if (!match) return;

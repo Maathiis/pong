@@ -29,7 +29,10 @@ export interface Match {
   status: MatchStatus;
   targetScore: number;
   left: { id: string; pseudo: string } | null;
-  right: { id: string; pseudo: string } | null;
+  /** contre le bot : { id: null, pseudo: 'BOT' } */
+  right: { id: string | null; pseudo: string } | null;
+  /** partie contre le bot de la borne (raquette droite) */
+  vsBot: boolean;
   score: { left: number; right: number };
   winner: Side | null;
   matchPoint: Side | null;

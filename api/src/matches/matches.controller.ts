@@ -59,6 +59,13 @@ export class MatchesController {
     return this.matches.start(user, id);
   }
 
+  /** Seul dans la salle : jouer contre le bot de la borne (raquette droite). */
+  @Post('matches/:id/bot')
+  @HttpCode(200)
+  playBot(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {
+    return this.matches.playBot(user, id);
+  }
+
   @Post('matches/:id/leave')
   @HttpCode(200)
   leave(@CurrentUser() user: User, @Param('id', ParseUUIDPipe) id: string) {

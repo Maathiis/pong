@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
 import { eq } from 'drizzle-orm';
 import { DB, type Db } from '../db/db.module.js';
-import { users, type User } from '../db/schema.js';
+import { BOT_PSEUDO, users, type User } from '../db/schema.js';
 import { LoginDto, RegisterDto } from './auth.dto.js';
 
 export interface JwtPayload {
@@ -34,7 +34,7 @@ export class AuthService {
   /** Inscription avec pseudo et mot de passe seulement : aucune autre donnée personnelle (minimisation RGPD). */
   async register(dto: RegisterDto) {
     const [taken] = await this.db.select({ id: users.id }).from(users).where(eq(users.pseudo, dto.pseudo));
-    if (taken) throw new ConflictException('Ce pseudo est déjà pris.');
+    if (taken || dto.pseudo === BOT_PSEUDO) throw new ConflictException('Ce pseudo est déjà pris.');
     const [user] = await this.db
       .insert(users)
       .values({

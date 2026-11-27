@@ -54,5 +54,7 @@ export const api = {
   currentMatch: () => request<Match | null>('GET', '/matches/current'),
   match: (id: string) => request<Match>('GET', `/matches/${id}`),
   leave: (id: string) => request<Match>('POST', `/matches/${id}/leave`),
+  /** seul dans la salle : le bot de la borne prend la raquette droite */
+  playBot: (id: string) => request<Match>('POST', `/matches/${id}/bot`),
   requestEnd: (id: string) => request<Match>('POST', `/matches/${id}/end-request`),
 };
